@@ -7,7 +7,7 @@ import gradio as gr
 from PIL import Image
 import numpy as np
 
-# import spaces
+import spaces
 
 
 from huggingface_hub import hf_hub_download
@@ -159,7 +159,7 @@ valid_models = [
 
 model_management.load_models_gpu(valid_models)
 
-# @spaces.GPU(duration=60)
+@spaces.GPU(duration=60)
 def generate_qr_code(prompt: str, url: str):
     if "https://" in url:
         url = url.replace("https://", "")
