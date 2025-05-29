@@ -33,3 +33,12 @@ saved_model/**/* filter=lfs diff=lfs merge=lfs -text
 *.zip filter=lfs diff=lfs merge=lfs -text
 *.zst filter=lfs diff=lfs merge=lfs -text
 *tfevents* filter=lfs diff=lfs merge=lfs -text
+custom_nodes/ComfyQR/example_generations/main_qr_error_corrected.png filter=lfs diff=lfs merge=lfs -text
+custom_nodes/ComfyQR/example_generations/main_qr_inpainted.png filter=lfs diff=lfs merge=lfs -text
+custom_nodes/ComfyQR/example_generations/main_qr_unscannable.png filter=lfs diff=lfs merge=lfs -text
+custom_nodes/ComfyQR/example_generations/old_main_qr_first_iteration.png filter=lfs diff=lfs merge=lfs -text
+custom_nodes/ComfyQR/example_generations/unscannable_00001_.png filter=lfs diff=lfs merge=lfs -text
+custom_nodes/ComfyQR/example_generations/unscannable_00001_fixed_.png filter=lfs diff=lfs merge=lfs -text
+custom_nodes/ComfyQR/img/for_deletion/badgers_levels_adjusted.png filter=lfs diff=lfs merge=lfs -text
+custom_nodes/ComfyQR/img/for_deletion/badgers.png filter=lfs diff=lfs merge=lfs -text
+custom_nodes/ComfyQR/img/node-mask-qr-errors.png filter=lfs diff=lfs merge=lfs -text
