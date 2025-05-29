@@ -17,6 +17,7 @@ Pillow
 scipy
 tqdm
 psutil
+qrcode >= 7.1
 
 #non essential dependencies:
 kornia>=0.7.1
