@@ -311,21 +311,30 @@ if __name__ == "__main__":
 
     # Start your Gradio app
     with gr.Blocks() as app:
-        # Add a title
+        # Add a title and description
         gr.Markdown("# QR Code Art Generator")
+        gr.Markdown("""
+        This is an AI-powered QR code generator that creates artistic QR codes using Stable Diffusion 1.5 and ControlNet models. 
+        The application uses a custom ComfyUI workflow to generate QR codes.
+
+        ### Tips:
+        - Use detailed prompts for better results
+        - Include style keywords like 'photorealistic', 'detailed', '8k'
+        - Try the examples below for inspiration
+        """)
 
         with gr.Row():
             with gr.Column():
                 # Add inputs
                 prompt_input = gr.Textbox(
                     label="Prompt", 
-                    placeholder="Enter your prompt here...",
-                    value="some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail"
+                    placeholder="Describe the image you want to generate (check examples below for inspiration)",
+                    value="Enter your prompt here... For example: 'a beautiful sunset over mountains, photorealistic, detailed landscape'"
                 )
                 url_input = gr.Textbox(
                     label="URL for QR Code",
-                    placeholder="Enter URL to convert to QR code...",
-                    value="https://www.linkedin.com/in/dmytro-kisil/"
+                    placeholder="Enter the URL you want to convert into a QR code (e.g., https://example.com)",
+                    value="Enter your URL here... For example: https://github.com"
                 )
                 # The generate button
                 generate_btn = gr.Button("Generate")
@@ -340,5 +349,38 @@ if __name__ == "__main__":
                 inputs=[prompt_input, url_input],
                 outputs=[output_image]
             )
+
+        # Add examples
+        examples = [
+            [
+                "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+                "https://www.google.com"
+            ],
+            [
+                "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
+                "https://github.com"
+            ],
+            [
+                "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
+                "https://twitter.com"
+            ],
+            [
+                "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
+                "https://linkedin.com"
+            ],
+            [
+                "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
+                "https://instagram.com"
+            ]
+        ]
+        
+        gr.Examples(
+            examples=examples,
+            inputs=[prompt_input, url_input],
+            outputs=[output_image],
+            fn=generate_qr_code,
+            cache_examples=True
+        )
+
         app.launch(share=False, mcp_server=True)
 
