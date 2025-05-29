@@ -159,7 +159,7 @@ valid_models = [
 
 model_management.load_models_gpu(valid_models)
 
-@spaces.GPU(duration=60)
+@spaces.GPU(duration=20)
 def generate_qr_code(prompt: str, url: str):
     if "https://" in url:
         url = url.replace("https://", "")
