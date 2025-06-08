@@ -67,3 +67,4 @@ custom_nodes/comfyui_controlnet_aux/NotoSans-Regular.ttf filter=lfs diff=lfs mer
 custom_nodes/comfyui_controlnet_aux/src/custom_controlnet_aux/mesh_graphormer/hand_landmarker.task filter=lfs diff=lfs merge=lfs -text
 custom_nodes/comfyui_controlnet_aux/src/custom_controlnet_aux/tests/test_image.png filter=lfs diff=lfs merge=lfs -text
 custom_nodes/comfyui_controlnet_aux/tests/pose.png filter=lfs diff=lfs merge=lfs -text
+showcase.mp4 filter=lfs diff=lfs merge=lfs -text
