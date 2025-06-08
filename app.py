@@ -357,6 +357,10 @@ if __name__ == "__main__":
                 "https://www.google.com"
             ],
             [
+                "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+                "https://store.steampowered.com"
+            ],
+            [
                 "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
                 "https://github.com"
             ],
