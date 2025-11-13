@@ -330,7 +330,7 @@ if __name__ == "__main__":
         - Try the examples below for inspiration
 
         ### Note:
-        VCard and calendar examples work in progress still, so they would throw an error at the moment.
+        VCARD and calendar event examples aren't ready yet and will show errors if you try to use them.
         """)
 
         with gr.Row():
