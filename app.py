@@ -328,6 +328,9 @@ if __name__ == "__main__":
         - Include style keywords like 'photorealistic', 'detailed', '8k'
         - Choose **URL** mode for web links or **Plain Text** mode for VCARD, WiFi credentials, calendar events, etc.
         - Try the examples below for inspiration
+
+        ### Note:
+        VCard and calendar examples work in progress still, so they would throw an error at the moment.
         """)
 
         with gr.Row():
