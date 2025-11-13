@@ -160,11 +160,14 @@ valid_models = [
 model_management.load_models_gpu(valid_models)
 
 @spaces.GPU(duration=20)
-def generate_qr_code(prompt: str, url: str):
-    if "https://" in url:
-        url = url.replace("https://", "")
-    if "http://" in url:
-        url = url.replace("http://", "")
+def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL"):
+    # Only manipulate the text if it's a URL input type
+    qr_text = text_input
+    if input_type == "URL":
+        if "https://" in qr_text:
+            qr_text = qr_text.replace("https://", "")
+        if "http://" in qr_text:
+            qr_text = qr_text.replace("http://", "")
 
     with torch.inference_mode():
 
@@ -190,9 +193,12 @@ def generate_qr_code(prompt: str, url: str):
             control_net_name="control_v11f1e_sd15_tile_fp16.safetensors"
         )
 
+        # Set protocol based on input type: None for plain text, Https for URLs
+        qr_protocol = "None" if input_type == "Plain Text" else "Https"
+        
         comfy_qr_by_module_size_15 = comfy_qr_by_module_size.generate_qr(
-            protocol="Https",
-            text=url,
+            protocol=qr_protocol,
+            text=qr_text,
             module_size=12,
             max_image_size=512,
             fill_hexcolor="#000000",
@@ -320,21 +326,31 @@ if __name__ == "__main__":
         ### Tips:
         - Use detailed prompts for better results
         - Include style keywords like 'photorealistic', 'detailed', '8k'
+        - Choose **URL** mode for web links or **Plain Text** mode for VCARD, WiFi credentials, calendar events, etc.
         - Try the examples below for inspiration
         """)
 
         with gr.Row():
             with gr.Column():
+                # Add input type selector
+                input_type = gr.Radio(
+                    choices=["URL", "Plain Text"],
+                    value="URL",
+                    label="Input Type",
+                    info="URL: For web links (auto-removes https://). Plain Text: For VCARD, WiFi, calendar, location, etc. (no manipulation)"
+                )
+                
                 # Add inputs
                 prompt_input = gr.Textbox(
                     label="Prompt", 
                     placeholder="Describe the image you want to generate (check examples below for inspiration)",
                     value="Enter your prompt here... For example: 'a beautiful sunset over mountains, photorealistic, detailed landscape'"
                 )
-                url_input = gr.Textbox(
-                    label="URL for QR Code",
-                    placeholder="Enter the URL you want to convert into a QR code (e.g., https://example.com)",
-                    value="Enter your URL here... For example: https://github.com"
+                text_input = gr.Textbox(
+                    label="QR Code Content",
+                    placeholder="Enter URL or plain text",
+                    value="Enter your URL or text here... For example: https://github.com",
+                    lines=3
                 )
                 # The generate button
                 generate_btn = gr.Button("Generate")
@@ -346,7 +362,7 @@ if __name__ == "__main__":
             # When clicking the button, it will trigger the main function
             generate_btn.click(
                 fn=generate_qr_code,
-                inputs=[prompt_input, url_input],
+                inputs=[prompt_input, text_input, input_type],
                 outputs=[output_image]
             )
 
@@ -354,33 +370,59 @@ if __name__ == "__main__":
         examples = [
             [
                 "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-                "https://www.google.com"
+                "https://www.google.com",
+                "URL"
             ],
             [
                 "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-                "https://store.steampowered.com"
+                "https://store.steampowered.com",
+                "URL"
             ],
             [
                 "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
-                "https://github.com"
+                "https://github.com",
+                "URL"
             ],
             [
                 "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
-                "https://twitter.com"
+                "https://twitter.com",
+                "URL"
             ],
             [
                 "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
-                "https://linkedin.com"
+                "https://linkedin.com",
+                "URL"
             ],
             [
                 "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
-                "https://instagram.com"
+                "https://instagram.com",
+                "URL"
+            ],
+            [
+                "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
+                "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nORG:Acme Corporation\nTITLE:Software Engineer\nTEL:+1-555-123-4567\nEMAIL:john.doe@example.com\nEND:VCARD",
+                "Plain Text"
+            ],
+            [
+                "wifi network symbol, modern tech, digital art, glowing blue, detailed, 8k, ultra detailed",
+                "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
+                "Plain Text"
+            ],
+            [
+                "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
+                "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
+                "Plain Text"
+            ],
+            [
+                "location pin on map, travel destination, scenic view, detailed cartography, 8k, ultra detailed",
+                "geo:37.7749,-122.4194",
+                "Plain Text"
             ]
         ]
         
         gr.Examples(
             examples=examples,
-            inputs=[prompt_input, url_input],
+            inputs=[prompt_input, text_input, input_type],
             outputs=[output_image],
             fn=generate_qr_code,
             cache_examples=True
