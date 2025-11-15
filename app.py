@@ -586,7 +586,7 @@ if __name__ == "__main__":
             ],
             outputs=[output_image, error_message],
             fn=generate_qr_code,
-            cache_examples=True
+            cache_examples=False
         )
 
         app.launch(share=False, mcp_server=True)
