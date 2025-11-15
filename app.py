@@ -195,7 +195,7 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL", imag
 
         # Set protocol based on input type: None for plain text, Https for URLs
         qr_protocol = "None" if input_type == "Plain Text" else "Https"
-        
+
         try:
             comfy_qr_by_module_size_15 = comfy_qr_by_module_size.generate_qr(
                 protocol=qr_protocol,
@@ -208,9 +208,12 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL", imag
                 border=border_size,
                 module_drawer=module_drawer,
             )
-        except RuntimeError or gr.Error as e:
-            error_msg = f"Error generating QR code: {str(e)}\n\nTry with a shorter text or to increase the image size."
-            raise gr.Error(error_msg) from e
+        except RuntimeError as e:
+            error_msg = (
+                f"Error generating QR code: {str(e)} "
+                "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level."
+            )
+            return None, error_msg
 
         emptylatentimage_17 = emptylatentimage.generate(
             width=image_size*2, height=image_size*2, batch_size=1
@@ -314,7 +317,7 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL", imag
             # Remove batch dimension and convert to PIL Image
             image_np = image_np[0]  # Shape will be (1024, 1024, 3)
             pil_image = Image.fromarray(image_np)
-            return pil_image
+            return pil_image, "No errors, all good!"
 
 
 if __name__ == "__main__":
@@ -441,12 +444,16 @@ if __name__ == "__main__":
             with gr.Column():
                 # The output image
                 output_image = gr.Image(label="Generated QR Code Art")
+                error_message = gr.Textbox(
+                    label="Status / Errors",
+                    interactive=False,
+                )
 
             # When clicking the button, it will trigger the main function
             generate_btn.click(
                 fn=generate_qr_code,
                 inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer],
-                outputs=[output_image]
+                outputs=[output_image, error_message]
             )
 
         # Add examples
@@ -565,7 +572,7 @@ if __name__ == "__main__":
                 module_size,
                 module_drawer
             ],
-            outputs=[output_image],
+            outputs=[output_image, error_message],
             fn=generate_qr_code,
             cache_examples=True
         )
