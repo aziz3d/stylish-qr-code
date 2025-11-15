@@ -213,7 +213,16 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL", imag
                 f"Error generating QR code: {str(e)}\n"
                 "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level under Advanced Settings."
             )
-            return None, error_msg
+            # Stream a single error message
+            yield None, error_msg
+            return
+
+        # 1) Yield the base QR image as the first intermediate result
+        base_qr_tensor = get_value_at_index(comfy_qr_by_module_size_15, 0)
+        base_qr_np = (base_qr_tensor.cpu().numpy() * 255).astype(np.uint8)
+        base_qr_np = base_qr_np[0]
+        base_qr_pil = Image.fromarray(base_qr_np)
+        yield base_qr_pil, "Generated base QR pattern… enhancing with AI (step 1/3)"
 
         emptylatentimage_17 = emptylatentimage.generate(
             width=image_size*2, height=image_size*2, batch_size=1
@@ -272,9 +281,12 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL", imag
                 vae=get_value_at_index(checkpointloadersimple_4, 2),
             )
 
-            # saveimage_9 = saveimage.save_images(
-            #     filename_prefix="qr-new", images=get_value_at_index(vaedecode_8, 0)
-            # )
+            # 2) Yield the first decoded image as a second intermediate result
+            mid_tensor = get_value_at_index(vaedecode_8, 0)
+            mid_np = (mid_tensor.cpu().numpy() * 255).astype(np.uint8)
+            mid_np = mid_np[0]
+            mid_pil = Image.fromarray(mid_np)
+            yield mid_pil, "First enhancement pass complete (step 2/3)… refining details"
 
             controlnetapplyadvanced_20 = controlnetapplyadvanced.apply_controlnet(
                 strength=1,
@@ -310,14 +322,12 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL", imag
             #     images=get_value_at_index(vaedecode_21, 0),
             # )
 
-            # Convert torch tensor to PIL Image
+            # 3) Yield the final enhanced image
             image_tensor = get_value_at_index(vaedecode_21, 0)
-            # Convert from [0,1] to [0,255] range and to uint8
             image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
-            # Remove batch dimension and convert to PIL Image
-            image_np = image_np[0]  # Shape will be (1024, 1024, 3)
+            image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
-            return pil_image, "No errors, all good!"
+            yield pil_image, "No errors, all good! Final QR art generated."
 
 
 if __name__ == "__main__":
@@ -355,7 +365,8 @@ if __name__ == "__main__":
                 prompt_input = gr.Textbox(
                     label="Prompt", 
                     placeholder="Describe the image you want to generate (check examples below for inspiration)",
-                    value="Enter your prompt here... For example: 'a beautiful sunset over mountains, photorealistic, detailed landscape'"
+                    value="Enter your prompt here... For example: 'a beautiful sunset over mountains, photorealistic, detailed landscape'",
+                    lines=3
                 )
                 text_input = gr.Textbox(
                     label="QR Code Content",
