@@ -160,7 +160,7 @@ valid_models = [
 model_management.load_models_gpu(valid_models)
 
 @spaces.GPU(duration=20)
-def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL"):
+def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square"):
     # Only manipulate the text if it's a URL input type
     qr_text = text_input
     if input_type == "URL":
@@ -172,7 +172,7 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL"):
     with torch.inference_mode():
 
         emptylatentimage_5 = emptylatentimage.generate(
-            width=512, height=512, batch_size=1
+            width=image_size, height=image_size, batch_size=1
         )
 
         cliptextencode_6 = cliptextencode.encode(
@@ -196,20 +196,24 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL"):
         # Set protocol based on input type: None for plain text, Https for URLs
         qr_protocol = "None" if input_type == "Plain Text" else "Https"
         
-        comfy_qr_by_module_size_15 = comfy_qr_by_module_size.generate_qr(
-            protocol=qr_protocol,
-            text=qr_text,
-            module_size=12,
-            max_image_size=512,
-            fill_hexcolor="#000000",
-            back_hexcolor="#FFFFFF",
-            error_correction="Medium",
-            border=4,
-            module_drawer="Square",
-        )
+        try:
+            comfy_qr_by_module_size_15 = comfy_qr_by_module_size.generate_qr(
+                protocol=qr_protocol,
+                text=qr_text,
+                module_size=module_size,
+                max_image_size=image_size,
+                fill_hexcolor="#000000",
+                back_hexcolor="#FFFFFF",
+                error_correction=error_correction,
+                border=border_size,
+                module_drawer=module_drawer,
+            )
+        except Exception as e:
+            error_msg = f"Error generating QR code: {str(e)}\n\nTry with a shorter text or to increase the image size."
+            raise gr.Error(error_msg) from e
 
         emptylatentimage_17 = emptylatentimage.generate(
-            width=1024, height=1024, batch_size=1
+            width=image_size*2, height=image_size*2, batch_size=1
         )
 
         controlnetloader_19 = controlnetloader.load_controlnet(
@@ -232,7 +236,7 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL"):
 
             tilepreprocessor_14 = tilepreprocessor.execute(
                 pyrUp_iters=3,
-                resolution=512,
+                resolution=image_size,
                 image=get_value_at_index(comfy_qr_by_module_size_15, 0),
             )
 
@@ -330,8 +334,9 @@ if __name__ == "__main__":
         - Try the examples below for inspiration
 
         ### Note:
-        VCARD and calendar event examples aren't ready yet and will show errors if you try to use them.
-        """)
+        Feel free to share your suggestions or feedback on how to improve the app! Thanks!
+       
+         """)
 
         with gr.Row():
             with gr.Column():
@@ -355,6 +360,81 @@ if __name__ == "__main__":
                     value="Enter your URL or text here... For example: https://github.com",
                     lines=3
                 )
+
+                with gr.Accordion("Advanced Settings", open=False):
+                    # Add image size slider
+                    image_size = gr.Slider(
+                        minimum=512,
+                        maximum=1024,
+                        step=64,
+                        value=512,
+                        label="Image Size",
+                        info="Base size of the generated image. Final output will be 2x this size (e.g., 512 → 1024) due to the two-step enhancement process. Higher values use more VRAM and take longer to process."
+                    )
+                    
+                    # Add border size slider
+                    border_size = gr.Slider(
+                        minimum=0,
+                        maximum=8,
+                        step=1,
+                        value=4,
+                        label="QR Code Border Size",
+                        info="Number of modules (squares) to use as border around the QR code. Higher values add more whitespace."
+                    )
+                    
+                    # Add error correction dropdown
+                    error_correction = gr.Dropdown(
+                        choices=["Low (7%)", "Medium (15%)", "Quartile (25%)", "High (30%)"],
+                        value="Medium (15%)",
+                        label="Error Correction Level",
+                        info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. Medium (15%) is a good starting point for most uses."
+                    )
+                    
+                    # Add module size slider
+                    module_size = gr.Slider(
+                        minimum=4,
+                        maximum=16,
+                        step=1,
+                        value=12,
+                        label="QR Module Size",
+                        info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 12 is a good starting point."
+                    )
+                    
+                    # Add module drawer dropdown with style examples
+                    module_drawer = gr.Dropdown(
+                        choices=["Square", "Gapped Square", "Circle", "Rounded", "Vertical bars", "Horizontal bars"],
+                        value="Square",
+                        label="QR Code Style",
+                        info="Select the style of the QR code modules (squares). See examples below. Different styles can give your QR code a unique look while maintaining scannability."
+                    )
+                    
+                    # Add style examples with labels
+                    gr.Markdown("### Style Examples:")
+                    
+                    # First row of examples
+                    with gr.Row():
+                        with gr.Column(scale=1, min_width=0):
+                            gr.Markdown("**Square**", show_label=False)
+                            gr.Image("custom_nodes/ComfyQR/img/square.png", width=100, show_label=False, show_download_button=False)
+                        with gr.Column(scale=1, min_width=0):
+                            gr.Markdown("**Gapped Square**", show_label=False)
+                            gr.Image("custom_nodes/ComfyQR/img/gapped_square.png", width=100, show_label=False, show_download_button=False)
+                        with gr.Column(scale=1, min_width=0):
+                            gr.Markdown("**Circle**", show_label=False)
+                            gr.Image("custom_nodes/ComfyQR/img/circle.png", width=100, show_label=False, show_download_button=False)
+                    
+                    # Second row of examples
+                    with gr.Row():
+                        with gr.Column(scale=1, min_width=0):
+                            gr.Markdown("**Rounded**", show_label=False)
+                            gr.Image("custom_nodes/ComfyQR/img/rounded.png", width=100, show_label=False, show_download_button=False)
+                        with gr.Column(scale=1, min_width=0):
+                            gr.Markdown("**Vertical Bars**", show_label=False)
+                            gr.Image("custom_nodes/ComfyQR/img/vertical-bars.png", width=100, show_label=False, show_download_button=False)
+                        with gr.Column(scale=1, min_width=0):
+                            gr.Markdown("**Horizontal Bars**", show_label=False)
+                            gr.Image("custom_nodes/ComfyQR/img/horizontal-bars.png", width=100, show_label=False, show_download_button=False)
+
                 # The generate button
                 generate_btn = gr.Button("Generate")
             
@@ -365,7 +445,7 @@ if __name__ == "__main__":
             # When clicking the button, it will trigger the main function
             generate_btn.click(
                 fn=generate_qr_code,
-                inputs=[prompt_input, text_input, input_type],
+                inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer],
                 outputs=[output_image]
             )
 
@@ -374,58 +454,117 @@ if __name__ == "__main__":
             [
                 "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
                 "https://www.google.com",
-                "URL"
+                "URL",
+                512,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ],
             [
                 "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
                 "https://store.steampowered.com",
-                "URL"
+                "URL",
+                512,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ],
             [
                 "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
                 "https://github.com",
-                "URL"
+                "URL",
+                512,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ],
             [
                 "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
                 "https://twitter.com",
-                "URL"
+                "URL",
+                512,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ],
             [
                 "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
                 "https://linkedin.com",
-                "URL"
+                "URL",
+                512,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ],
             [
                 "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
                 "https://instagram.com",
-                "URL"
+                "URL",
+                512,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ],
             [
                 "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
                 "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nORG:Acme Corporation\nTITLE:Software Engineer\nTEL:+1-555-123-4567\nEMAIL:john.doe@example.com\nEND:VCARD",
-                "Plain Text"
+                "Plain Text",
+                704,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ],
             [
                 "wifi network symbol, modern tech, digital art, glowing blue, detailed, 8k, ultra detailed",
                 "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
-                "Plain Text"
+                "Plain Text",
+                512,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ],
             [
                 "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
                 "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
-                "Plain Text"
+                "Plain Text",
+                512,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ],
             [
                 "location pin on map, travel destination, scenic view, detailed cartography, 8k, ultra detailed",
                 "geo:37.7749,-122.4194",
-                "Plain Text"
+                "Plain Text",
+                512,
+                4,
+                "Medium (15%)",
+                12,
+                "Square"
             ]
         ]
         
         gr.Examples(
             examples=examples,
-            inputs=[prompt_input, text_input, input_type],
+            inputs=[
+                prompt_input, 
+                text_input, 
+                input_type, 
+                image_size, 
+                border_size,
+                error_correction,
+                module_size,
+                module_drawer
+            ],
             outputs=[output_image],
             fn=generate_qr_code,
             cache_examples=True
