@@ -210,8 +210,8 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL", imag
             )
         except RuntimeError as e:
             error_msg = (
-                f"Error generating QR code: {str(e)} "
-                "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level."
+                f"Error generating QR code: {str(e)}\n"
+                "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level under Advanced Settings."
             )
             return None, error_msg
 
@@ -447,6 +447,7 @@ if __name__ == "__main__":
                 error_message = gr.Textbox(
                     label="Status / Errors",
                     interactive=False,
+                    lines=3,
                 )
 
             # When clicking the button, it will trigger the main function
