@@ -515,7 +515,7 @@ if __name__ == "__main__":
                 "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
                 "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nORG:Acme Corporation\nTITLE:Software Engineer\nTEL:+1-555-123-4567\nEMAIL:john.doe@example.com\nEND:VCARD",
                 "Plain Text",
-                704,
+                832,
                 4,
                 "Medium (15%)",
                 12,
