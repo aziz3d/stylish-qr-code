@@ -535,7 +535,7 @@ if __name__ == "__main__":
                 "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
                 "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
                 "Plain Text",
-                512,
+                832,
                 4,
                 "Medium (15%)",
                 12,
