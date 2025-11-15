@@ -208,7 +208,7 @@ def generate_qr_code(prompt: str, text_input: str, input_type: str = "URL", imag
                 border=border_size,
                 module_drawer=module_drawer,
             )
-        except Exception as e:
+        except gr.Error as e:
             error_msg = f"Error generating QR code: {str(e)}\n\nTry with a shorter text or to increase the image size."
             raise gr.Error(error_msg) from e
 
