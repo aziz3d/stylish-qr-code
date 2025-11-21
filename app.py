@@ -10,6 +10,8 @@ import numpy as np
 
 import spaces
 
+# Import FreeU for quality improvements
+from comfy_extras.nodes_freelunch import FreeU_V2
 
 from huggingface_hub import hf_hub_download
 
@@ -515,6 +517,18 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         vae=get_value_at_index(checkpointloadersimple_artistic, 2),
     )
 
+    # Apply FreeU_V2 for enhanced quality (better detail, texture, and cleaner output)
+    base_model = get_value_at_index(checkpointloadersimple_artistic, 0)
+
+    freeu = FreeU_V2()
+    enhanced_model = freeu.patch(
+        model=base_model,
+        b1=1.3,  # Backbone feature enhancement - improves fine details
+        b2=1.4,  # Backbone feature enhancement (layer 2) - improves textures
+        s1=0.9,  # Skip connection dampening - reduces artifacts
+        s2=0.2   # Skip connection dampening (layer 2) - cleaner output
+    )[0]
+
     # First sampling pass
     samples = ksampler.sample(
         seed=seed,
@@ -523,7 +537,7 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         sampler_name="dpmpp_3m_sde",
         scheduler="karras",
         denoise=1,
-        model=get_value_at_index(checkpointloadersimple_artistic, 0),
+        model=enhanced_model,  # Using FreeU + SAG enhanced model
         positive=get_value_at_index(controlnet_apply, 0),
         negative=get_value_at_index(controlnet_apply, 1),
         latent_image=get_value_at_index(latent_image, 0),
@@ -593,7 +607,7 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         sampler_name="dpmpp_3m_sde",
         scheduler="karras",
         denoise=0.8,
-        model=get_value_at_index(checkpointloadersimple_artistic, 0),
+        model=enhanced_model,  # Using FreeU + SAG enhanced model
         positive=get_value_at_index(controlnet_apply_final, 0),
         negative=get_value_at_index(controlnet_apply_final, 1),
         latent_image=get_value_at_index(upscaled_latent, 0),
