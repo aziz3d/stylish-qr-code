@@ -195,20 +195,26 @@ def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "UR
         else:  # artistic
             yield from _pipeline_artistic(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed)
 
-def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_size: int, noise_strength: float = 0.5):
+def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_size: int, module_size: int = 12):
     """
-    Add random dark noise ONLY to the border region of a QR code image.
+    Add QR-like cubic patterns ONLY to the border region of a QR code image.
+    Creates black squares that resemble QR modules for a smooth transition.
+    The density of border cubics automatically matches the QR code interior density.
 
     Args:
         image_tensor: ComfyUI image tensor (batch, height, width, channels) with values 0-1
         seed: Random seed for reproducible noise
         border_size: Border size in QR modules (from QR generation settings)
         image_size: Image size in pixels
-        noise_strength: Strength of noise to add (0-1 range, 0.5 = medium dark noise)
+        module_size: Size of QR modules in pixels (for cubic pattern)
 
     Returns:
-        Modified tensor with dark noise added only to border region
+        Modified tensor with QR-like cubic patterns in border region
     """
+    # Early return if no border
+    if border_size == 0:
+        return image_tensor
+
     # Convert to numpy for manipulation
     img_np = image_tensor.cpu().numpy()
 
@@ -219,10 +225,8 @@ def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_si
     img = img_np[0]  # (height, width, channels)
     height, width, channels = img.shape
 
-    # Calculate border region in pixels
-    # Rough estimation: border_size modules out of total image
-    # We'll use a simple approach: outer X% of the image
-    border_thickness = max(int(height * 0.08), 20)  # At least 20 pixels or 8% of image
+    # Calculate border region in pixels using exact QR parameters
+    border_thickness = border_size * module_size  # Exact border size in pixels
 
     # Create border mask (1 for border region, 0 for QR code interior)
     border_mask = np.zeros((height, width), dtype=bool)
@@ -243,13 +247,34 @@ def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_si
     # Combine: only border AND white areas
     final_mask = border_mask & white_mask
 
-    # Generate random dark noise - only grayscale (same value for all channels)
-    noise_amount = np.random.uniform(0, noise_strength, size=(height, width))
+    # Calculate QR code interior density to determine border cubic density
+    interior_mask = ~border_mask  # Inverse of border = QR interior
+    interior_pixels = img_255[interior_mask][:, 0]  # Get first channel (grayscale)
+    black_count = (interior_pixels < 128).sum()  # Count black pixels (< 128)
+    total_count = len(interior_pixels)
+    qr_density = float(black_count) / float(total_count) if total_count > 0 else 0.5
 
-    # Apply noise to all channels equally (creates grayscale noise - dark pixels)
-    for c in range(channels):
-        # Subtract noise to make it darker (0.5 means subtract up to 0.5 from white = dark gray to black)
-        img[:, :, c] = np.where(final_mask, np.maximum(img[:, :, c] - noise_amount, 0), img[:, :, c])
+    # Use QR interior density as probability for placing border cubics
+    # This creates a natural transition matching the QR pattern density
+
+    # Generate QR-like cubic pattern noise
+    # Create a grid based on module_size
+    for y in range(0, height, module_size):
+        for x in range(0, width, module_size):
+            # Check if this module position is mostly in the border area
+            y_end = min(y + module_size, height)
+            x_end = min(x + module_size, width)
+
+            # Count how many pixels in this module are in the final_mask
+            module_region = final_mask[y:y_end, x:x_end]
+
+            # If at least 50% of the module is in the border, we can place a cubic here
+            if module_region.sum() > (module_size * module_size * 0.5):
+                # Randomly decide to place a black cubic based on QR interior density
+                if np.random.random() < qr_density:
+                    # Place a black square (cubic) - set all channels to 0 (black)
+                    for c in range(channels):
+                        img[y:y_end, x:x_end, c] = 0
 
     # Put modified image back into batch array
     img_np[0] = img
@@ -440,22 +465,23 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
 
     # Only add noise if there's a border (border_size > 0)
     if border_size > 0:
-        yield base_qr_pil, "Generated base QR pattern... adding border noise (step 1/5)"
+        yield base_qr_pil, "Generated base QR pattern... adding QR-like cubics to border (step 1/5)"
 
-        # Add dark noise ONLY to border region (not QR code interior)
+        # Add QR-like cubic patterns ONLY to border region (extends QR structure into border)
+        # Density automatically matches QR code interior density for natural transition
         qr_with_border_noise = add_noise_to_border_only(
             get_value_at_index(comfy_qr, 0),
             seed=seed + 100,
             border_size=border_size,
             image_size=image_size,
-            noise_strength=0.5  # Dark gray to black pixels
+            module_size=module_size,  # Use same module size as QR code
         )
 
-        # Show the noisy QR so you can see the border noise effect
+        # Show the noisy QR so you can see the border cubic pattern effect
         noisy_qr_np = (qr_with_border_noise.cpu().numpy() * 255).astype(np.uint8)
         noisy_qr_np = noisy_qr_np[0]
         noisy_qr_pil = Image.fromarray(noisy_qr_np)
-        yield noisy_qr_pil, "Added dark noise to border only... enhancing with AI (step 2/5)"
+        yield noisy_qr_pil, "Added QR-like cubics to border... enhancing with AI (step 2/5)"
     else:
         # No border, skip noise
         qr_with_border_noise = get_value_at_index(comfy_qr, 0)
@@ -486,7 +512,7 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         control_net_name="control_v11f1e_sd15_tile_fp16.safetensors"
     )
 
-    # First ControlNet pass (using noisy QR)
+    # First ControlNet pass (using QR with border cubics)
     controlnet_apply = controlnetapplyadvanced.apply_controlnet(
         strength=0.45,
         start_percent=0,
@@ -498,14 +524,14 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         vae=get_value_at_index(checkpointloadersimple_artistic, 2),
     )
 
-    # Tile preprocessor (using noisy QR)
+    # Tile preprocessor (using QR with border cubics)
     tile_processed = tilepreprocessor.execute(
         pyrUp_iters=3,
         resolution=image_size,
         image=qr_with_border_noise,
     )
 
-    # Second ControlNet pass (using tile processed from noisy QR)
+    # Second ControlNet pass (using tile processed from QR with border cubics)
     controlnet_apply = controlnetapplyadvanced.apply_controlnet(
         strength=0.45,
         start_percent=0,
@@ -521,13 +547,23 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
     base_model = get_value_at_index(checkpointloadersimple_artistic, 0)
 
     freeu = FreeU_V2()
-    enhanced_model = freeu.patch(
+    freeu_model = freeu.patch(
         model=base_model,
-        b1=1.3,  # Backbone feature enhancement - improves fine details
-        b2=1.4,  # Backbone feature enhancement (layer 2) - improves textures
-        s1=0.9,  # Skip connection dampening - reduces artifacts
-        s2=0.2   # Skip connection dampening (layer 2) - cleaner output
+        b1=1.3,  # Backbone feature enhancement - improves fine details (reduced for more blending)
+        b2=1.4,  # Backbone feature enhancement (layer 2) - improves textures (reduced)
+        s1=0.9,  # Skip connection dampening - reduces QR structure visibility (increased)
+        s2=0.2   # Skip connection dampening (layer 2) - hides more cubics (increased)
     )[0]
+
+    # Apply SEG (Self-Attention Guidance) for improved structural coherence
+    # DISABLED: SEG blurs attention maps which rounds position marker corners, affecting scannability
+    # smoothed_energy = NODE_CLASS_MAPPINGS["SelfAttentionGuidance"]()
+    # enhanced_model = smoothed_energy.patch(
+    #     model=freeu_model,
+    #     scale=1.5,
+    #     blur_sigma=0.5,
+    # )[0]
+    enhanced_model = freeu_model  # Use only FreeU, skip SEG
 
     # First sampling pass
     samples = ksampler.sample(
