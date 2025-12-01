@@ -2,7 +2,6 @@ import os
 import random
 import sys
 from typing import Sequence, Mapping, Any, Union
-from functools import partial
 import torch
 import gradio as gr
 from PIL import Image
@@ -177,7 +176,7 @@ valid_models = [
 model_management.load_models_gpu(valid_models)
 
 @spaces.GPU(duration=30)
-def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, pipeline: str = "standard"):
+def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, pipeline: str = "standard", freeu_b1: float = 1.2, freeu_b2: float = 1.3, freeu_s1: float = 1.0, freeu_s2: float = 0.6, enable_sag: bool = True, sag_scale: float = 1.5, sag_blur_sigma: float = 1.5):
     # Only manipulate the text if it's a URL input type
     qr_text = text_input
     if input_type == "URL":
@@ -193,7 +192,15 @@ def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "UR
         if pipeline == "standard":
             yield from _pipeline_standard(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed)
         else:  # artistic
-            yield from _pipeline_artistic(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed)
+            yield from _pipeline_artistic(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma)
+
+def generate_standard_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0):
+    """Wrapper function for standard QR generation"""
+    yield from generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="standard")
+
+def generate_artistic_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, freeu_b1: float = 1.2, freeu_b2: float = 1.3, freeu_s1: float = 1.0, freeu_s2: float = 0.6, enable_sag: bool = True, sag_scale: float = 1.5, sag_blur_sigma: float = 1.5):
+    """Wrapper function for artistic QR generation with FreeU and SAG parameters"""
+    yield from generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="artistic", freeu_b1=freeu_b1, freeu_b2=freeu_b2, freeu_s1=freeu_s1, freeu_s2=freeu_s2, enable_sag=enable_sag, sag_scale=sag_scale, sag_blur_sigma=sag_blur_sigma)
 
 def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_size: int, module_size: int = 12):
     """
@@ -433,7 +440,7 @@ def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: i
         pil_image = Image.fromarray(image_np)
         yield pil_image, "No errors, all good! Final QR art generated."
 
-def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int):
+def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int, freeu_b1: float = 1.2, freeu_b2: float = 1.3, freeu_s1: float = 1.0, freeu_s2: float = 0.6, enable_sag: bool = True, sag_scale: float = 1.5, sag_blur_sigma: float = 1.5):
     # Generate QR code
     qr_protocol = "None" if input_type == "Plain Text" else "Https"
 
@@ -549,21 +556,22 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
     freeu = FreeU_V2()
     freeu_model = freeu.patch(
         model=base_model,
-        b1=1.3,  # Backbone feature enhancement - improves fine details (reduced for more blending)
-        b2=1.4,  # Backbone feature enhancement (layer 2) - improves textures (reduced)
-        s1=0.9,  # Skip connection dampening - reduces QR structure visibility (increased)
-        s2=0.2   # Skip connection dampening (layer 2) - hides more cubics (increased)
+        b1=freeu_b1,  # Backbone feature enhancement - customizable
+        b2=freeu_b2,  # Backbone feature enhancement (layer 2) - customizable
+        s1=freeu_s1,  # Skip connection dampening - customizable structure hiding
+        s2=freeu_s2   # Skip connection dampening (layer 2) - customizable scannability balance
     )[0]
 
-    # Apply SEG (Self-Attention Guidance) for improved structural coherence
-    # DISABLED: SEG blurs attention maps which rounds position marker corners, affecting scannability
-    # smoothed_energy = NODE_CLASS_MAPPINGS["SelfAttentionGuidance"]()
-    # enhanced_model = smoothed_energy.patch(
-    #     model=freeu_model,
-    #     scale=1.5,
-    #     blur_sigma=0.5,
-    # )[0]
-    enhanced_model = freeu_model  # Use only FreeU, skip SEG
+    # Apply SAG (Self-Attention Guidance) for improved structural coherence (if enabled)
+    if enable_sag:
+        smoothed_energy = NODE_CLASS_MAPPINGS["SelfAttentionGuidance"]()
+        enhanced_model = smoothed_energy.patch(
+            model=freeu_model,
+            scale=sag_scale,  # SAG guidance scale - customizable
+            blur_sigma=sag_blur_sigma,  # Blur amount - customizable artistic blending
+        )[0]
+    else:
+        enhanced_model = freeu_model
 
     # First sampling pass
     samples = ksampler.sample(
@@ -616,7 +624,7 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
     step_msg = "Image upscaled (step 4/5)... final refinement pass" if border_size > 0 else "Image upscaled (step 3/4)... final refinement pass"
     yield upscaled_pil, step_msg
 
-    # Final ControlNet pass
+    # Final ControlNet pass (second pass - upscaled refinement)
     controlnet_apply_final = controlnetapplyadvanced.apply_controlnet(
         strength=0.7,
         start_percent=0,
@@ -819,7 +827,7 @@ if __name__ == "__main__":
 
                 # When clicking the button, it will trigger the main function
                 generate_btn.click(
-                    fn=partial(generate_qr_code_unified, pipeline="standard"),
+                    fn=generate_standard_qr,
                     inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed],
                     outputs=[output_image, error_message]
                 )
@@ -941,7 +949,7 @@ if __name__ == "__main__":
                         module_drawer
                     ],
                     outputs=[output_image, error_message],
-                    fn=partial(generate_qr_code_unified, pipeline="standard"),
+                    fn=generate_standard_qr,
                     cache_examples=False
                 )
 
@@ -1033,6 +1041,65 @@ if __name__ == "__main__":
                                 info="Seed value for reproducibility. Same seed with same settings will produce the same result."
                             )
 
+                            # FreeU Parameters
+                            gr.Markdown("### FreeU Quality Enhancement")
+                            freeu_b1 = gr.Slider(
+                                minimum=1.0,
+                                maximum=1.6,
+                                step=0.01,
+                                value=1.2,
+                                label="FreeU B1 (Backbone 1)",
+                                info="Backbone feature enhancement for first layer. Higher values improve detail but may reduce blending. Range: 1.0-1.6, Default: 1.2"
+                            )
+                            freeu_b2 = gr.Slider(
+                                minimum=1.0,
+                                maximum=1.6,
+                                step=0.01,
+                                value=1.3,
+                                label="FreeU B2 (Backbone 2)",
+                                info="Backbone feature enhancement for second layer. Higher values improve texture. Range: 1.0-1.6, Default: 1.3"
+                            )
+                            freeu_s1 = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.5,
+                                step=0.01,
+                                value=1.0,
+                                label="FreeU S1 (Skip 1)",
+                                info="Skip connection dampening for first layer. Lower values hide QR structure more. Range: 0.0-1.5, Default: 1.0"
+                            )
+                            freeu_s2 = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.5,
+                                step=0.01,
+                                value=0.6,
+                                label="FreeU S2 (Skip 2)",
+                                info="Skip connection dampening for second layer. Balances scannability. Range: 0.0-1.5, Default: 0.6"
+                            )
+
+                            # SAG (Self-Attention Guidance) Parameters
+                            gr.Markdown("### SAG (Self-Attention Guidance)")
+                            enable_sag = gr.Checkbox(
+                                label="Enable SAG",
+                                value=False,
+                                info="Enable Self-Attention Guidance for improved structural coherence and artistic blending"
+                            )
+                            sag_scale = gr.Slider(
+                                minimum=0.0,
+                                maximum=3.0,
+                                step=0.1,
+                                value=1.5,
+                                label="SAG Scale",
+                                info="Guidance strength. Higher values provide more structural coherence. Range: 0.0-3.0, Default: 1.5"
+                            )
+                            sag_blur_sigma = gr.Slider(
+                                minimum=0.0,
+                                maximum=5.0,
+                                step=0.1,
+                                value=1.5,
+                                label="SAG Blur Sigma",
+                                info="Blur amount for artistic blending. Higher values create softer, more artistic effects. Range: 0.0-5.0, Default: 1.5"
+                            )
+
                             # Add style examples with labels
                             gr.Markdown("### Style Examples:")
 
@@ -1074,8 +1141,8 @@ if __name__ == "__main__":
 
                 # When clicking the button, it will trigger the artistic function
                 artistic_generate_btn.click(
-                    fn=partial(generate_qr_code_unified, pipeline="artistic"),
-                    inputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed],
+                    fn=generate_artistic_qr,
+                    inputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma],
                     outputs=[artistic_output_image, artistic_error_message]
                 )
 
@@ -1196,7 +1263,7 @@ if __name__ == "__main__":
                         artistic_module_drawer
                     ],
                     outputs=[artistic_output_image, artistic_error_message],
-                    fn=partial(generate_qr_code_unified, pipeline="artistic"),
+                    fn=generate_artistic_qr,
                     cache_examples=False
                 )
 
