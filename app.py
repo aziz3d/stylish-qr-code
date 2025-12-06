@@ -1686,7 +1686,7 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                     ],
                     outputs=[artistic_output_image, artistic_error_message],
                     fn=generate_artistic_qr,
-                    cache_examples=True
+                    cache_examples=False
                 )
 
     app.launch(share=False, mcp_server=True)
