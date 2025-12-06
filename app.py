@@ -22,6 +22,7 @@ hf_hub_download(repo_id="comfyanonymous/ControlNet-v1-1_fp16_safetensors", filen
 hf_hub_download(repo_id="Lykon/dreamshaper-7", filename="vae/diffusion_pytorch_model.fp16.safetensors", local_dir="models")
 hf_hub_download(repo_id="stabilityai/sd-vae-ft-mse-original", filename="vae-ft-mse-840000-ema-pruned.safetensors", local_dir="models/vae")
 hf_hub_download(repo_id="lllyasviel/Annotators", filename="RealESRGAN_x4plus.pth", local_dir="models/upscale_models")
+hf_hub_download(repo_id="lykon/RealESRGAN_x4plus", filename="RealESRGAN_x4plus.pth", local_dir="models/upscale_models")
 
 def get_value_at_index(obj: Union[Sequence, Mapping], index: int) -> Any:
     """Returns the value at the given index of a sequence or mapping.
@@ -176,7 +177,7 @@ valid_models = [
 model_management.load_models_gpu(valid_models)
 
 @spaces.GPU(duration=30)
-def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, pipeline: str = "standard", freeu_b1: float = 1.2, freeu_b2: float = 1.3, freeu_s1: float = 1.0, freeu_s2: float = 0.6, enable_sag: bool = True, sag_scale: float = 1.5, sag_blur_sigma: float = 1.5):
+def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, pipeline: str = "standard", enable_upscale: bool = False, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 1.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7):
     # Only manipulate the text if it's a URL input type
     qr_text = text_input
     if input_type == "URL":
@@ -190,17 +191,17 @@ def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "UR
 
     with torch.inference_mode():
         if pipeline == "standard":
-            yield from _pipeline_standard(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed)
+            yield from _pipeline_standard(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed, enable_upscale)
         else:  # artistic
-            yield from _pipeline_artistic(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma)
+            yield from _pipeline_artistic(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed, enable_upscale, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma, controlnet_strength_first, controlnet_strength_final)
 
-def generate_standard_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0):
+def generate_standard_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = False):
     """Wrapper function for standard QR generation"""
-    yield from generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="standard")
+    yield from generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="standard", enable_upscale=enable_upscale)
 
-def generate_artistic_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, freeu_b1: float = 1.2, freeu_b2: float = 1.3, freeu_s1: float = 1.0, freeu_s2: float = 0.6, enable_sag: bool = True, sag_scale: float = 1.5, sag_blur_sigma: float = 1.5):
+def generate_artistic_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = True, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 1.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7):
     """Wrapper function for artistic QR generation with FreeU and SAG parameters"""
-    yield from generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="artistic", freeu_b1=freeu_b1, freeu_b2=freeu_b2, freeu_s1=freeu_s1, freeu_s2=freeu_s2, enable_sag=enable_sag, sag_scale=sag_scale, sag_blur_sigma=sag_blur_sigma)
+    yield from generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="artistic", enable_upscale=enable_upscale, freeu_b1=freeu_b1, freeu_b2=freeu_b2, freeu_s1=freeu_s1, freeu_s2=freeu_s2, enable_sag=enable_sag, sag_scale=sag_scale, sag_blur_sigma=sag_blur_sigma, controlnet_strength_first=controlnet_strength_first, controlnet_strength_final=controlnet_strength_final)
 
 def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_size: int, module_size: int = 12):
     """
@@ -289,7 +290,7 @@ def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_si
     # Convert back to tensor
     return torch.from_numpy(img_np).to(image_tensor.device)
 
-def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int):
+def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int, enable_upscale: bool = False):
     emptylatentimage_5 = emptylatentimage.generate(
         width=image_size, height=image_size, batch_size=1
     )
@@ -433,14 +434,35 @@ def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: i
             vae=get_value_at_index(checkpointloadersimple_4, 2),
         )
 
-        # 3) Yield the final enhanced image
-        image_tensor = get_value_at_index(vaedecode_21, 0)
-        image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
-        image_np = image_np[0]
-        pil_image = Image.fromarray(image_np)
-        yield pil_image, "No errors, all good! Final QR art generated."
+        # 3) Optionally upscale if enabled
+        if enable_upscale:
+            # Show pre-upscale result
+            pre_upscale_tensor = get_value_at_index(vaedecode_21, 0)
+            pre_upscale_np = (pre_upscale_tensor.cpu().numpy() * 255).astype(np.uint8)
+            pre_upscale_np = pre_upscale_np[0]
+            pre_upscale_pil = Image.fromarray(pre_upscale_np)
+            yield pre_upscale_pil, "Enhancement complete (step 3/4)... upscaling image"
 
-def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int, freeu_b1: float = 1.2, freeu_b2: float = 1.3, freeu_s1: float = 1.0, freeu_s2: float = 0.6, enable_sag: bool = True, sag_scale: float = 1.5, sag_blur_sigma: float = 1.5):
+            # Upscale the final image
+            upscaled = imageupscalewithmodel.upscale(
+                upscale_model=get_value_at_index(upscalemodelloader_30, 0),
+                image=get_value_at_index(vaedecode_21, 0),
+            )
+
+            image_tensor = get_value_at_index(upscaled, 0)
+            image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
+            image_np = image_np[0]
+            pil_image = Image.fromarray(image_np)
+            yield pil_image, f"No errors, all good! Final QR art generated and upscaled. (step 4/4) | Seed: {seed}"
+        else:
+            # No upscaling
+            image_tensor = get_value_at_index(vaedecode_21, 0)
+            image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
+            image_np = image_np[0]
+            pil_image = Image.fromarray(image_np)
+            yield pil_image, f"No errors, all good! Final QR art generated. | Seed: {seed}"
+
+def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int, enable_upscale: bool = True, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 1.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7):
     # Generate QR code
     qr_protocol = "None" if input_type == "Plain Text" else "Https"
 
@@ -521,7 +543,7 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
 
     # First ControlNet pass (using QR with border cubics)
     controlnet_apply = controlnetapplyadvanced.apply_controlnet(
-        strength=0.45,
+        strength=controlnet_strength_first,
         start_percent=0,
         end_percent=1,
         positive=get_value_at_index(positive_prompt, 0),
@@ -540,7 +562,7 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
 
     # Second ControlNet pass (using tile processed from QR with border cubics)
     controlnet_apply = controlnetapplyadvanced.apply_controlnet(
-        strength=0.45,
+        strength=controlnet_strength_first,
         start_percent=0,
         end_percent=1,
         positive=get_value_at_index(controlnet_apply, 0),
@@ -598,41 +620,18 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
     first_pass_np = (first_pass_tensor.cpu().numpy() * 255).astype(np.uint8)
     first_pass_np = first_pass_np[0]
     first_pass_pil = Image.fromarray(first_pass_np)
-    step_msg = "First enhancement pass complete (step 3/5)... upscaling image" if border_size > 0 else "First enhancement pass complete (step 2/4)... upscaling image"
+    step_msg = "First enhancement pass complete (step 3/5)... final refinement pass" if border_size > 0 else "First enhancement pass complete (step 2/4)... final refinement pass"
     yield first_pass_pil, step_msg
 
-    # Upscale image with model
-    upscaled = imageupscalewithmodel.upscale(
-        upscale_model=get_value_at_index(upscalemodelloader_30, 0),
-        image=get_value_at_index(decoded, 0),
-    )
-
-    # Resize to target size
-    resized = imagescale.upscale(
-        upscale_method="area",
-        width=image_size*2,
-        height=image_size*2,
-        crop="disabled",
-        image=get_value_at_index(upscaled, 0),
-    )
-
-    # Show upscaled result
-    upscaled_tensor = get_value_at_index(resized, 0)
-    upscaled_np = (upscaled_tensor.cpu().numpy() * 255).astype(np.uint8)
-    upscaled_np = upscaled_np[0]
-    upscaled_pil = Image.fromarray(upscaled_np)
-    step_msg = "Image upscaled (step 4/5)... final refinement pass" if border_size > 0 else "Image upscaled (step 3/4)... final refinement pass"
-    yield upscaled_pil, step_msg
-
-    # Final ControlNet pass (second pass - upscaled refinement)
+    # Final ControlNet pass (second pass - refinement)
     controlnet_apply_final = controlnetapplyadvanced.apply_controlnet(
-        strength=0.7,
+        strength=controlnet_strength_final,
         start_percent=0,
         end_percent=1,
         positive=get_value_at_index(positive_prompt, 0),
         negative=get_value_at_index(negative_prompt, 0),
         control_net=get_value_at_index(tile_controlnet, 0),
-        image=get_value_at_index(resized, 0),
+        image=get_value_at_index(decoded, 0),
         vae=get_value_at_index(checkpointloadersimple_artistic, 2),
     )
 
@@ -663,16 +662,40 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         vae=get_value_at_index(checkpointloadersimple_artistic, 2),
     )
 
-    # Convert to PIL Image and return
-    image_tensor = get_value_at_index(final_decoded, 0)
-    image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
-    image_np = image_np[0]
-    final_image = Image.fromarray(image_np)
-    step_msg = "No errors, all good! Final artistic QR code generated. (step 5/5)" if border_size > 0 else "No errors, all good! Final artistic QR code generated. (step 4/4)"
-    yield final_image, step_msg
+    # Optionally upscale if enabled
+    if enable_upscale:
+        # Show result before upscaling
+        pre_upscale_tensor = get_value_at_index(final_decoded, 0)
+        pre_upscale_np = (pre_upscale_tensor.cpu().numpy() * 255).astype(np.uint8)
+        pre_upscale_np = pre_upscale_np[0]
+        pre_upscale_pil = Image.fromarray(pre_upscale_np)
+        step_msg = "Final refinement complete (step 4/5)... upscaling image" if border_size > 0 else "Final refinement complete (step 3/4)... upscaling image"
+        yield pre_upscale_pil, step_msg
+
+        # Upscale image with model (after final samples, before returning)
+        upscaled = imageupscalewithmodel.upscale(
+            upscale_model=get_value_at_index(upscalemodelloader_30, 0),
+            image=get_value_at_index(final_decoded, 0),
+        )
+
+        # Convert upscaled image to PIL Image and return
+        image_tensor = get_value_at_index(upscaled, 0)
+        image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
+        image_np = image_np[0]
+        final_image = Image.fromarray(image_np)
+        step_msg = f"No errors, all good! Final artistic QR code generated and upscaled. (step 5/5) | Seed: {seed}" if border_size > 0 else f"No errors, all good! Final artistic QR code generated and upscaled. (step 4/4) | Seed: {seed}"
+        yield final_image, step_msg
+    else:
+        # No upscaling
+        image_tensor = get_value_at_index(final_decoded, 0)
+        image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
+        image_np = image_np[0]
+        final_image = Image.fromarray(image_np)
+        step_msg = f"No errors, all good! Final artistic QR code generated. (step 4/4) | Seed: {seed}" if border_size > 0 else f"No errors, all good! Final artistic QR code generated. (step 3/3) | Seed: {seed}"
+        yield final_image, step_msg
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
 
     # Start your Gradio app
     with gr.Blocks() as app:
@@ -771,21 +794,6 @@ if __name__ == "__main__":
                                 info="Select the style of the QR code modules (squares). See examples below. Different styles can give your QR code a unique look while maintaining scannability."
                             )
 
-                            # Add seed controls
-                            use_custom_seed = gr.Checkbox(
-                                label="Use Custom Seed",
-                                value=False,
-                                info="Enable to use a specific seed for reproducible results"
-                            )
-                            seed = gr.Slider(
-                                minimum=0,
-                                maximum=2000000,
-                                step=1,
-                                value=0,
-                                label="Seed",
-                                info="Seed value for reproducibility. Same seed with same settings will produce the same result."
-                            )
-
                             # Add style examples with labels
                             gr.Markdown("### Style Examples:")
 
@@ -813,6 +821,28 @@ if __name__ == "__main__":
                                     gr.Markdown("**Horizontal Bars**", show_label=False)
                                     gr.Image("custom_nodes/ComfyQR/img/horizontal-bars.png", width=100, show_label=False, show_download_button=False)
 
+                            # Add upscale checkbox
+                            enable_upscale = gr.Checkbox(
+                                label="Enable Upscaling",
+                                value=False,
+                                info="Enable upscaling with RealESRGAN for higher quality output (disabled by default for standard pipeline)"
+                            )
+
+                            # Add seed controls
+                            use_custom_seed = gr.Checkbox(
+                                label="Use Custom Seed",
+                                value=True,
+                                info="Enable to use a specific seed for reproducible results"
+                            )
+                            seed = gr.Slider(
+                                minimum=0,
+                                maximum=2000000,
+                                step=1,
+                                value=718313,
+                                label="Seed",
+                                info="Seed value for reproducibility. Same seed with same settings will produce the same result."
+                            )
+
                         # The generate button
                         generate_btn = gr.Button("Generate Standard QR", variant="primary")
 
@@ -828,7 +858,7 @@ if __name__ == "__main__":
                 # When clicking the button, it will trigger the main function
                 generate_btn.click(
                     fn=generate_standard_qr,
-                    inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed],
+                    inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, enable_upscale],
                     outputs=[output_image, error_message]
                 )
 
@@ -985,9 +1015,9 @@ if __name__ == "__main__":
                                 minimum=512,
                                 maximum=1024,
                                 step=64,
-                                value=512,
+                                value=704,
                                 label="Image Size",
-                                info="Base size of the generated image. Final output will be 2x this size (e.g., 512 → 1024) due to the two-step enhancement process. Higher values use more VRAM and take longer to process."
+                                info="Base size of the generated image. Final output will be 2x this size (e.g., 704 → 1408) due to the two-step enhancement process. Higher values use more VRAM and take longer to process."
                             )
 
                             # Add border size slider for artistic QR
@@ -995,7 +1025,7 @@ if __name__ == "__main__":
                                 minimum=0,
                                 maximum=8,
                                 step=1,
-                                value=4,
+                                value=6,
                                 label="QR Code Border Size",
                                 info="Number of modules (squares) to use as border around the QR code. Higher values add more whitespace."
                             )
@@ -1003,9 +1033,9 @@ if __name__ == "__main__":
                             # Add error correction dropdown for artistic QR
                             artistic_error_correction = gr.Dropdown(
                                 choices=["Low (7%)", "Medium (15%)", "Quartile (25%)", "High (30%)"],
-                                value="Medium (15%)",
+                                value="High (30%)",
                                 label="Error Correction Level",
-                                info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. Medium (15%) is a good starting point for most uses."
+                                info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. High (30%) is recommended for artistic QR codes."
                             )
 
                             # Add module size slider for artistic QR
@@ -1013,9 +1043,9 @@ if __name__ == "__main__":
                                 minimum=4,
                                 maximum=16,
                                 step=1,
-                                value=12,
+                                value=16,
                                 label="QR Module Size",
-                                info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 12 is a good starting point."
+                                info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 16 is a good starting point."
                             )
 
                             # Add module drawer dropdown with style examples for artistic QR
@@ -1024,80 +1054,6 @@ if __name__ == "__main__":
                                 value="Square",
                                 label="QR Code Style",
                                 info="Select the style of the QR code modules (squares). See examples below. Different styles can give your QR code a unique look while maintaining scannability."
-                            )
-
-                            # Add seed controls for artistic QR
-                            artistic_use_custom_seed = gr.Checkbox(
-                                label="Use Custom Seed",
-                                value=False,
-                                info="Enable to use a specific seed for reproducible results"
-                            )
-                            artistic_seed = gr.Slider(
-                                minimum=0,
-                                maximum=2000000,
-                                step=1,
-                                value=0,
-                                label="Seed",
-                                info="Seed value for reproducibility. Same seed with same settings will produce the same result."
-                            )
-
-                            # FreeU Parameters
-                            gr.Markdown("### FreeU Quality Enhancement")
-                            freeu_b1 = gr.Slider(
-                                minimum=1.0,
-                                maximum=1.6,
-                                step=0.01,
-                                value=1.2,
-                                label="FreeU B1 (Backbone 1)",
-                                info="Backbone feature enhancement for first layer. Higher values improve detail but may reduce blending. Range: 1.0-1.6, Default: 1.2"
-                            )
-                            freeu_b2 = gr.Slider(
-                                minimum=1.0,
-                                maximum=1.6,
-                                step=0.01,
-                                value=1.3,
-                                label="FreeU B2 (Backbone 2)",
-                                info="Backbone feature enhancement for second layer. Higher values improve texture. Range: 1.0-1.6, Default: 1.3"
-                            )
-                            freeu_s1 = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.5,
-                                step=0.01,
-                                value=1.0,
-                                label="FreeU S1 (Skip 1)",
-                                info="Skip connection dampening for first layer. Lower values hide QR structure more. Range: 0.0-1.5, Default: 1.0"
-                            )
-                            freeu_s2 = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.5,
-                                step=0.01,
-                                value=0.6,
-                                label="FreeU S2 (Skip 2)",
-                                info="Skip connection dampening for second layer. Balances scannability. Range: 0.0-1.5, Default: 0.6"
-                            )
-
-                            # SAG (Self-Attention Guidance) Parameters
-                            gr.Markdown("### SAG (Self-Attention Guidance)")
-                            enable_sag = gr.Checkbox(
-                                label="Enable SAG",
-                                value=False,
-                                info="Enable Self-Attention Guidance for improved structural coherence and artistic blending"
-                            )
-                            sag_scale = gr.Slider(
-                                minimum=0.0,
-                                maximum=3.0,
-                                step=0.1,
-                                value=1.5,
-                                label="SAG Scale",
-                                info="Guidance strength. Higher values provide more structural coherence. Range: 0.0-3.0, Default: 1.5"
-                            )
-                            sag_blur_sigma = gr.Slider(
-                                minimum=0.0,
-                                maximum=5.0,
-                                step=0.1,
-                                value=1.5,
-                                label="SAG Blur Sigma",
-                                info="Blur amount for artistic blending. Higher values create softer, more artistic effects. Range: 0.0-5.0, Default: 1.5"
                             )
 
                             # Add style examples with labels
@@ -1127,6 +1083,87 @@ if __name__ == "__main__":
                                     gr.Markdown("**Horizontal Bars**", show_label=False)
                                     gr.Image("custom_nodes/ComfyQR/img/horizontal-bars.png", width=100, show_label=False, show_download_button=False)
 
+                            # Add upscale checkbox
+                            artistic_enable_upscale = gr.Checkbox(
+                                label="Enable Upscaling",
+                                value=True,
+                                info="Enable upscaling with RealESRGAN for higher quality output (enabled by default for artistic pipeline)"
+                            )
+
+                            # Add seed controls for artistic QR
+                            artistic_use_custom_seed = gr.Checkbox(
+                                label="Use Custom Seed",
+                                value=True,
+                                info="Enable to use a specific seed for reproducible results"
+                            )
+                            artistic_seed = gr.Slider(
+                                minimum=0,
+                                maximum=2000000,
+                                step=1,
+                                value=718313,
+                                label="Seed",
+                                info="Seed value for reproducibility. Same seed with same settings will produce the same result."
+                            )
+
+                            # FreeU Parameters
+                            gr.Markdown("### FreeU Quality Enhancement")
+                            freeu_b1 = gr.Slider(
+                                minimum=1.0,
+                                maximum=1.6,
+                                step=0.01,
+                                value=1.4,
+                                label="FreeU B1 (Backbone 1)",
+                                info="Backbone feature enhancement for first layer. Higher values improve detail but may reduce blending. Range: 1.0-1.6, Default: 1.4"
+                            )
+                            freeu_b2 = gr.Slider(
+                                minimum=1.0,
+                                maximum=1.6,
+                                step=0.01,
+                                value=1.3,
+                                label="FreeU B2 (Backbone 2)",
+                                info="Backbone feature enhancement for second layer. Higher values improve texture. Range: 1.0-1.6, Default: 1.3"
+                            )
+                            freeu_s1 = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.5,
+                                step=0.01,
+                                value=0.0,
+                                label="FreeU S1 (Skip 1)",
+                                info="Skip connection dampening for first layer. Lower values hide QR structure more. Range: 0.0-1.5, Default: 0.0"
+                            )
+                            freeu_s2 = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.5,
+                                step=0.01,
+                                value=1.3,
+                                label="FreeU S2 (Skip 2)",
+                                info="Skip connection dampening for second layer. Balances scannability. Range: 0.0-1.5, Default: 1.3"
+                            )
+
+                            # SAG (Self-Attention Guidance) Parameters
+                            gr.Markdown("### SAG (Self-Attention Guidance)")
+                            enable_sag = gr.Checkbox(
+                                label="Enable SAG",
+                                value=True,
+                                info="Enable Self-Attention Guidance for improved structural coherence and artistic blending"
+                            )
+                            sag_scale = gr.Slider(
+                                minimum=0.0,
+                                maximum=3.0,
+                                step=0.1,
+                                value=0.5,
+                                label="SAG Scale",
+                                info="Guidance strength. Higher values provide more structural coherence. Range: 0.0-3.0, Default: 0.5"
+                            )
+                            sag_blur_sigma = gr.Slider(
+                                minimum=0.0,
+                                maximum=5.0,
+                                step=0.1,
+                                value=1.5,
+                                label="SAG Blur Sigma",
+                                info="Blur amount for artistic blending. Higher values create softer, more artistic effects. Range: 0.0-5.0, Default: 1.5"
+                            )
+
                         # The generate button for artistic QR
                         artistic_generate_btn = gr.Button("Generate Artistic QR", variant="primary")
 
@@ -1142,7 +1179,7 @@ if __name__ == "__main__":
                 # When clicking the button, it will trigger the artistic function
                 artistic_generate_btn.click(
                     fn=generate_artistic_qr,
-                    inputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma],
+                    inputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, artistic_enable_upscale, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma],
                     outputs=[artistic_output_image, artistic_error_message]
                 )
 
