@@ -22,7 +22,6 @@ hf_hub_download(repo_id="comfyanonymous/ControlNet-v1-1_fp16_safetensors", filen
 hf_hub_download(repo_id="Lykon/dreamshaper-7", filename="vae/diffusion_pytorch_model.fp16.safetensors", local_dir="models")
 hf_hub_download(repo_id="stabilityai/sd-vae-ft-mse-original", filename="vae-ft-mse-840000-ema-pruned.safetensors", local_dir="models/vae")
 hf_hub_download(repo_id="lllyasviel/Annotators", filename="RealESRGAN_x4plus.pth", local_dir="models/upscale_models")
-hf_hub_download(repo_id="lykon/RealESRGAN_x4plus", filename="RealESRGAN_x4plus.pth", local_dir="models/upscale_models")
 
 def get_value_at_index(obj: Union[Sequence, Mapping], index: int) -> Any:
     """Returns the value at the given index of a sequence or mapping.
@@ -195,13 +194,249 @@ def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "UR
         else:  # artistic
             yield from _pipeline_artistic(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed, enable_upscale, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma, controlnet_strength_first, controlnet_strength_final)
 
-def generate_standard_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = False):
+def generate_standard_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = False, enable_freeu: bool = False):
     """Wrapper function for standard QR generation"""
-    yield from generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="standard", enable_upscale=enable_upscale)
+    # Get actual seed used (custom or random)
+    actual_seed = seed if use_custom_seed else random.randint(1, 2**64)
 
-def generate_artistic_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = True, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 1.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7):
+    # Create settings JSON once
+    settings_dict = {
+        "pipeline": "standard",
+        "prompt": prompt,
+        "text_input": text_input,
+        "input_type": input_type,
+        "image_size": image_size,
+        "border_size": border_size,
+        "error_correction": error_correction,
+        "module_size": module_size,
+        "module_drawer": module_drawer,
+        "seed": actual_seed,
+        "use_custom_seed": True,
+        "enable_upscale": enable_upscale,
+        "enable_freeu": enable_freeu
+    }
+    settings_json = generate_settings_json(settings_dict)
+
+    # Generate QR and yield progressive results
+    generator = generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="standard", enable_upscale=enable_upscale)
+
+    final_image = None
+    final_status = None
+
+    for image, status in generator:
+        final_image = image
+        final_status = status
+        # Show progressive updates but don't show accordion yet
+        yield (image, status, gr.update(), gr.update())
+
+    # After all steps complete, show the accordion with JSON
+    if final_image is not None:
+        yield (
+            final_image,
+            final_status,
+            gr.update(value=settings_json),  # Update textbox content
+            gr.update(visible=True)  # Make accordion visible only at the end
+        )
+
+def generate_artistic_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = True, enable_freeu: bool = True, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 0.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7):
     """Wrapper function for artistic QR generation with FreeU and SAG parameters"""
-    yield from generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="artistic", enable_upscale=enable_upscale, freeu_b1=freeu_b1, freeu_b2=freeu_b2, freeu_s1=freeu_s1, freeu_s2=freeu_s2, enable_sag=enable_sag, sag_scale=sag_scale, sag_blur_sigma=sag_blur_sigma, controlnet_strength_first=controlnet_strength_first, controlnet_strength_final=controlnet_strength_final)
+    # Get actual seed used (custom or random)
+    actual_seed = seed if use_custom_seed else random.randint(1, 2**64)
+
+    # Create settings JSON once
+    settings_dict = {
+        "pipeline": "artistic",
+        "prompt": prompt,
+        "text_input": text_input,
+        "input_type": input_type,
+        "image_size": image_size,
+        "border_size": border_size,
+        "error_correction": error_correction,
+        "module_size": module_size,
+        "module_drawer": module_drawer,
+        "seed": actual_seed,
+        "use_custom_seed": True,
+        "enable_upscale": enable_upscale,
+        "enable_freeu": enable_freeu,
+        "freeu_b1": freeu_b1,
+        "freeu_b2": freeu_b2,
+        "freeu_s1": freeu_s1,
+        "freeu_s2": freeu_s2,
+        "enable_sag": enable_sag,
+        "sag_scale": sag_scale,
+        "sag_blur_sigma": sag_blur_sigma
+    }
+    settings_json = generate_settings_json(settings_dict)
+
+    # Generate QR and yield progressive results
+    generator = generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="artistic", enable_upscale=enable_upscale, freeu_b1=freeu_b1, freeu_b2=freeu_b2, freeu_s1=freeu_s1, freeu_s2=freeu_s2, enable_sag=enable_sag, sag_scale=sag_scale, sag_blur_sigma=sag_blur_sigma, controlnet_strength_first=controlnet_strength_first, controlnet_strength_final=controlnet_strength_final)
+
+    final_image = None
+    final_status = None
+
+    for image, status in generator:
+        final_image = image
+        final_status = status
+        # Show progressive updates but don't show accordion yet
+        yield (image, status, gr.update(), gr.update())
+
+    # After all steps complete, show the accordion with JSON
+    if final_image is not None:
+        yield (
+            final_image,
+            final_status,
+            gr.update(value=settings_json),  # Update textbox content
+            gr.update(visible=True)  # Make accordion visible only at the end
+        )
+
+# Helper functions for shareable settings JSON
+import json
+
+def generate_settings_json(params_dict: dict) -> str:
+    """Generate a formatted JSON string from parameters dictionary"""
+    try:
+        return json.dumps(params_dict, indent=2, ensure_ascii=False)
+    except Exception as e:
+        return json.dumps({"error": f"Failed to generate JSON: {str(e)}"}, indent=2)
+
+def parse_settings_json(json_string: str) -> dict:
+    """Parse JSON string and return parameters dictionary with validation"""
+    try:
+        if not json_string or not json_string.strip():
+            return {}
+
+        params = json.loads(json_string)
+        if not isinstance(params, dict):
+            return {}
+
+        return params
+    except json.JSONDecodeError as e:
+        return {"error": f"Invalid JSON: {str(e)}"}
+    except Exception as e:
+        return {"error": f"Failed to parse JSON: {str(e)}"}
+
+def load_settings_from_json_standard(json_string: str):
+    """Load settings from JSON for Standard pipeline"""
+    try:
+        params = json.loads(json_string)
+
+        # Validate pipeline type
+        pipeline = params.get("pipeline", "standard")  # Default to standard for backward compatibility
+        if pipeline != "standard":
+            error_msg = f"❌ Error: You're trying to load {pipeline.upper()} pipeline settings into the STANDARD pipeline. Please use the correct tab."
+            # Return empty updates for all fields + error message + make status visible
+            return (
+                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(),
+                gr.update(value=error_msg, visible=True)
+            )
+
+        # Extract parameters with defaults
+        prompt = params.get("prompt", "")
+        text_input = params.get("text_input", "")
+        input_type = params.get("input_type", "URL")
+        image_size = params.get("image_size", 512)
+        border_size = params.get("border_size", 4)
+        error_correction = params.get("error_correction", "Medium (15%)")
+        module_size = params.get("module_size", 12)
+        module_drawer = params.get("module_drawer", "Square")
+        use_custom_seed = params.get("use_custom_seed", True)
+        seed = params.get("seed", 718313)
+        enable_upscale = params.get("enable_upscale", False)
+        enable_freeu = params.get("enable_freeu", False)
+
+        success_msg = "✅ Settings loaded successfully!"
+        return (
+            prompt, text_input, input_type, image_size, border_size,
+            error_correction, module_size, module_drawer, use_custom_seed,
+            seed, enable_upscale, enable_freeu,
+            gr.update(value=success_msg, visible=True)
+        )
+
+    except json.JSONDecodeError as e:
+        error_msg = f"❌ Invalid JSON format: {str(e)}"
+        return (
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(),
+            gr.update(value=error_msg, visible=True)
+        )
+    except Exception as e:
+        error_msg = f"❌ Error loading settings: {str(e)}"
+        return (
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(),
+            gr.update(value=error_msg, visible=True)
+        )
+
+def load_settings_from_json_artistic(json_string: str):
+    """Load settings from JSON for Artistic pipeline"""
+    try:
+        params = json.loads(json_string)
+
+        # Validate pipeline type
+        pipeline = params.get("pipeline", "artistic")  # Default to artistic for backward compatibility
+        if pipeline != "artistic":
+            error_msg = f"❌ Error: You're trying to load {pipeline.upper()} pipeline settings into the ARTISTIC pipeline. Please use the correct tab."
+            # Return empty updates for all fields + error message + make status visible
+            return (
+                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(value=error_msg, visible=True)
+            )
+
+        # Extract parameters with defaults
+        prompt = params.get("prompt", "")
+        text_input = params.get("text_input", "")
+        input_type = params.get("input_type", "URL")
+        image_size = params.get("image_size", 704)
+        border_size = params.get("border_size", 6)
+        error_correction = params.get("error_correction", "High (30%)")
+        module_size = params.get("module_size", 16)
+        module_drawer = params.get("module_drawer", "Square")
+        use_custom_seed = params.get("use_custom_seed", True)
+        seed = params.get("seed", 718313)
+        enable_upscale = params.get("enable_upscale", True)
+        enable_freeu = params.get("enable_freeu", True)
+        freeu_b1 = params.get("freeu_b1", 1.4)
+        freeu_b2 = params.get("freeu_b2", 1.3)
+        freeu_s1 = params.get("freeu_s1", 0.0)
+        freeu_s2 = params.get("freeu_s2", 1.3)
+        enable_sag = params.get("enable_sag", True)
+        sag_scale = params.get("sag_scale", 0.5)
+        sag_blur_sigma = params.get("sag_blur_sigma", 0.5)
+
+        success_msg = "✅ Settings loaded successfully!"
+        return (
+            prompt, text_input, input_type, image_size, border_size,
+            error_correction, module_size, module_drawer, use_custom_seed,
+            seed, enable_upscale, enable_freeu, freeu_b1, freeu_b2, freeu_s1,
+            freeu_s2, enable_sag, sag_scale, sag_blur_sigma,
+            gr.update(value=success_msg, visible=True)
+        )
+
+    except json.JSONDecodeError as e:
+        error_msg = f"❌ Invalid JSON format: {str(e)}"
+        return (
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(value=error_msg, visible=True)
+        )
+    except Exception as e:
+        error_msg = f"❌ Error loading settings: {str(e)}"
+        return (
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(value=error_msg, visible=True)
+        )
 
 def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_size: int, module_size: int = 12):
     """
@@ -331,7 +566,7 @@ def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: i
     except RuntimeError as e:
         error_msg = (
             f"Error generating QR code: {str(e)}\n"
-            "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level under Advanced Settings."
+            "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level under Change Settings Manually."
         )
         yield None, error_msg
         return
@@ -453,16 +688,16 @@ def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: i
             image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
-            yield pil_image, f"No errors, all good! Final QR art generated and upscaled. (step 4/4) | Seed: {seed}"
+            yield pil_image, "No errors, all good! Final QR art generated and upscaled. (step 4/4)"
         else:
             # No upscaling
             image_tensor = get_value_at_index(vaedecode_21, 0)
             image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
-            yield pil_image, f"No errors, all good! Final QR art generated. | Seed: {seed}"
+            yield pil_image, "No errors, all good! Final QR art generated."
 
-def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int, enable_upscale: bool = True, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 1.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7):
+def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int, enable_upscale: bool = True, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 0.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7):
     # Generate QR code
     qr_protocol = "None" if input_type == "Plain Text" else "Https"
 
@@ -481,7 +716,7 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
     except RuntimeError as e:
         error_msg = (
             f"Error generating QR code: {str(e)}\n"
-            "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level under Advanced Settings."
+            "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level under Change Settings Manually."
         )
         yield None, error_msg
         return
@@ -620,7 +855,11 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
     first_pass_np = (first_pass_tensor.cpu().numpy() * 255).astype(np.uint8)
     first_pass_np = first_pass_np[0]
     first_pass_pil = Image.fromarray(first_pass_np)
-    step_msg = "First enhancement pass complete (step 3/5)... final refinement pass" if border_size > 0 else "First enhancement pass complete (step 2/4)... final refinement pass"
+    # Calculate step based on border and upscale
+    if enable_upscale:
+        step_msg = "First enhancement pass complete (step 3/5)... final refinement pass" if border_size > 0 else "First enhancement pass complete (step 2/4)... final refinement pass"
+    else:
+        step_msg = "First enhancement pass complete (step 3/4)... final refinement pass" if border_size > 0 else "First enhancement pass complete (step 2/3)... final refinement pass"
     yield first_pass_pil, step_msg
 
     # Final ControlNet pass (second pass - refinement)
@@ -683,7 +922,7 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
-        step_msg = f"No errors, all good! Final artistic QR code generated and upscaled. (step 5/5) | Seed: {seed}" if border_size > 0 else f"No errors, all good! Final artistic QR code generated and upscaled. (step 4/4) | Seed: {seed}"
+        step_msg = "No errors, all good! Final artistic QR code generated and upscaled. (step 5/5)" if border_size > 0 else "No errors, all good! Final artistic QR code generated and upscaled. (step 4/4)"
         yield final_image, step_msg
     else:
         # No upscaling
@@ -691,7 +930,7 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
-        step_msg = f"No errors, all good! Final artistic QR code generated. (step 4/4) | Seed: {seed}" if border_size > 0 else f"No errors, all good! Final artistic QR code generated. (step 3/3) | Seed: {seed}"
+        step_msg = "No errors, all good! Final artistic QR code generated. (step 4/4)" if border_size > 0 else "No errors, all good! Final artistic QR code generated. (step 3/3)"
         yield final_image, step_msg
 
 
@@ -710,10 +949,11 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
         - Include style keywords like 'photorealistic', 'detailed', '8k'
         - Choose **URL** mode for web links or **Plain Text** mode for VCARD, WiFi credentials, calendar events, etc.
         - Try the examples below for inspiration
+        - **Copy/paste settings**: After generation, copy the JSON settings string that appears below the image and paste it into "Import Settings from JSON" to reproduce exact results or share with others
 
         ### Two Modes:
-        - **Standard QR**: Stable, accurate QR code generation (faster, more scannable)
-        - **Artistic QR**: More artistic and creative results with upscaling (slower, more creative)
+        - **Standard QR**: Stable, accurate QR code generation (faster, more scannable, less creative)
+        - **Artistic QR**: More artistic and creative results with upscaling (slower, more creative, less scannable)
 
         ### Note:
         Feel free to share your suggestions or feedback on how to improve the app! Thanks!
@@ -747,7 +987,26 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                             lines=3
                         )
 
-                        with gr.Accordion("Advanced Settings", open=False):
+                        # Import Settings section - separate accordion
+                        with gr.Accordion("Import Settings from JSON", open=False):
+                            gr.Markdown("Paste a settings JSON string (copied from a previous generation) to load all parameters at once.")
+                            import_json_input_standard = gr.Textbox(
+                                label="Paste Settings JSON",
+                                placeholder='{"pipeline": "standard", "prompt": "...", "seed": 718313, ...}',
+                                lines=3
+                            )
+                            import_status_standard = gr.Textbox(
+                                label="Import Status",
+                                interactive=False,
+                                visible=False,
+                                lines=2
+                            )
+                            with gr.Row():
+                                load_settings_btn_standard = gr.Button("Load Settings", variant="primary")
+                                clear_json_btn_standard = gr.Button("Clear", variant="secondary")
+
+                        # Change Settings Manually - separate accordion
+                        with gr.Accordion("Change Settings Manually", open=False):
                             # Add image size slider
                             image_size = gr.Slider(
                                 minimum=512,
@@ -828,6 +1087,13 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                                 info="Enable upscaling with RealESRGAN for higher quality output (disabled by default for standard pipeline)"
                             )
 
+                            # Add FreeU checkbox
+                            enable_freeu_standard = gr.Checkbox(
+                                label="Enable FreeU",
+                                value=False,
+                                info="Enable FreeU quality enhancement (disabled by default for standard pipeline)"
+                            )
+
                             # Add seed controls
                             use_custom_seed = gr.Checkbox(
                                 label="Use Custom Seed",
@@ -840,6 +1106,7 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                                 step=1,
                                 value=718313,
                                 label="Seed",
+                                visible=True,  # Initially visible since use_custom_seed=True
                                 info="Seed value for reproducibility. Same seed with same settings will produce the same result."
                             )
 
@@ -854,12 +1121,55 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                             interactive=False,
                             lines=3,
                         )
+                        # Wrap settings output in accordion (initially hidden)
+                        with gr.Accordion("Shareable Settings (JSON)", open=True, visible=False) as settings_accordion_standard:
+                            settings_output_standard = gr.Textbox(
+                                label="Copy this JSON to share your exact settings",
+                                interactive=True,
+                                lines=5,
+                                show_copy_button=True
+                            )
 
                 # When clicking the button, it will trigger the main function
                 generate_btn.click(
                     fn=generate_standard_qr,
-                    inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, enable_upscale],
-                    outputs=[output_image, error_message]
+                    inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, enable_upscale, enable_freeu_standard],
+                    outputs=[output_image, error_message, settings_output_standard, settings_accordion_standard]
+                )
+
+                # Load Settings button event handler
+                load_settings_btn_standard.click(
+                    fn=load_settings_from_json_standard,
+                    inputs=[import_json_input_standard],
+                    outputs=[
+                        prompt_input,
+                        text_input,
+                        input_type,
+                        image_size,
+                        border_size,
+                        error_correction,
+                        module_size,
+                        module_drawer,
+                        use_custom_seed,
+                        seed,
+                        enable_upscale,
+                        enable_freeu_standard,
+                        import_status_standard
+                    ]
+                )
+
+                # Clear button event handler
+                clear_json_btn_standard.click(
+                    fn=lambda: ("", gr.update(visible=False)),
+                    inputs=[],
+                    outputs=[import_json_input_standard, import_status_standard]
+                )
+
+                # Seed slider visibility toggle
+                use_custom_seed.change(
+                    fn=lambda x: gr.update(visible=x),
+                    inputs=[use_custom_seed],
+                    outputs=[seed]
                 )
 
                 # Add examples
@@ -1009,7 +1319,26 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                             lines=3
                         )
 
-                        with gr.Accordion("Advanced Settings", open=False):
+                        # Import Settings section - separate accordion
+                        with gr.Accordion("Import Settings from JSON", open=False):
+                            gr.Markdown("Paste a settings JSON string (copied from a previous generation) to load all parameters at once.")
+                            import_json_input_artistic = gr.Textbox(
+                                label="Paste Settings JSON",
+                                placeholder='{"pipeline": "artistic", "prompt": "...", "seed": 718313, ...}',
+                                lines=3
+                            )
+                            import_status_artistic = gr.Textbox(
+                                label="Import Status",
+                                interactive=False,
+                                visible=False,
+                                lines=2
+                            )
+                            with gr.Row():
+                                load_settings_btn_artistic = gr.Button("Load Settings", variant="primary")
+                                clear_json_btn_artistic = gr.Button("Clear", variant="secondary")
+
+                        # Change Settings Manually - separate accordion
+                        with gr.Accordion("Change Settings Manually", open=False):
                             # Add image size slider for artistic QR
                             artistic_image_size = gr.Slider(
                                 minimum=512,
@@ -1102,11 +1431,17 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                                 step=1,
                                 value=718313,
                                 label="Seed",
+                                visible=True,  # Initially visible since artistic_use_custom_seed=True
                                 info="Seed value for reproducibility. Same seed with same settings will produce the same result."
                             )
 
                             # FreeU Parameters
                             gr.Markdown("### FreeU Quality Enhancement")
+                            enable_freeu_artistic = gr.Checkbox(
+                                label="Enable FreeU",
+                                value=True,
+                                info="Enable FreeU quality enhancement (enabled by default for artistic pipeline)"
+                            )
                             freeu_b1 = gr.Slider(
                                 minimum=1.0,
                                 maximum=1.6,
@@ -1159,9 +1494,9 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                                 minimum=0.0,
                                 maximum=5.0,
                                 step=0.1,
-                                value=1.5,
+                                value=0.5,
                                 label="SAG Blur Sigma",
-                                info="Blur amount for artistic blending. Higher values create softer, more artistic effects. Range: 0.0-5.0, Default: 1.5"
+                                info="Blur amount for artistic blending. Higher values create softer, more artistic effects. Range: 0.0-5.0, Default: 0.5"
                             )
 
                         # The generate button for artistic QR
@@ -1175,74 +1510,124 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                             interactive=False,
                             lines=3,
                         )
+                        # Wrap settings output in accordion (initially hidden)
+                        with gr.Accordion("Shareable Settings (JSON)", open=True, visible=False) as settings_accordion_artistic:
+                            settings_output_artistic = gr.Textbox(
+                                label="Copy this JSON to share your exact settings",
+                                interactive=True,
+                                lines=5,
+                                show_copy_button=True
+                            )
 
                 # When clicking the button, it will trigger the artistic function
                 artistic_generate_btn.click(
                     fn=generate_artistic_qr,
-                    inputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, artistic_enable_upscale, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma],
-                    outputs=[artistic_output_image, artistic_error_message]
+                    inputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, artistic_enable_upscale, enable_freeu_artistic, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma],
+                    outputs=[artistic_output_image, artistic_error_message, settings_output_artistic, settings_accordion_artistic]
+                )
+
+                # Load Settings button event handler
+                load_settings_btn_artistic.click(
+                    fn=load_settings_from_json_artistic,
+                    inputs=[import_json_input_artistic],
+                    outputs=[
+                        artistic_prompt_input,
+                        artistic_text_input,
+                        artistic_input_type,
+                        artistic_image_size,
+                        artistic_border_size,
+                        artistic_error_correction,
+                        artistic_module_size,
+                        artistic_module_drawer,
+                        artistic_use_custom_seed,
+                        artistic_seed,
+                        artistic_enable_upscale,
+                        enable_freeu_artistic,
+                        freeu_b1,
+                        freeu_b2,
+                        freeu_s1,
+                        freeu_s2,
+                        enable_sag,
+                        sag_scale,
+                        sag_blur_sigma,
+                        import_status_artistic
+                    ]
+                )
+
+                # Clear button event handler for artistic tab
+                clear_json_btn_artistic.click(
+                    fn=lambda: ("", gr.update(visible=False)),
+                    inputs=[],
+                    outputs=[import_json_input_artistic, import_status_artistic]
+                )
+
+                # Seed slider visibility toggle for artistic tab
+                artistic_use_custom_seed.change(
+                    fn=lambda x: gr.update(visible=x),
+                    inputs=[artistic_use_custom_seed],
+                    outputs=[artistic_seed]
                 )
 
                 # Add examples for artistic QR
                 artistic_examples = [
                     [
-                        "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
+                        "some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
                         "https://www.google.com",
                         "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
+                        640,  # Image size
+                        6,    # Border
+                        "Medium (15%)",  # Error correction
+                        14,   # Module size
                         "Square"
                     ],
                     [
                         "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
                         "https://store.steampowered.com",
                         "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
+                        768,  # Image size
+                        6,    # Border
+                        "High (30%)",  # Error correction
+                        16,   # Module size
                         "Square"
                     ],
                     [
                         "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
                         "https://github.com",
                         "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
+                        704,  # Image size (default)
+                        6,    # Border
+                        "High (30%)",  # Error correction
+                        16,   # Module size
                         "Square"
                     ],
                     [
                         "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
                         "https://twitter.com",
                         "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
+                        704,  # Image size (default)
+                        6,    # Border
+                        "High (30%)",  # Error correction
+                        16,   # Module size
                         "Square"
                     ],
                     [
                         "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
                         "https://linkedin.com",
                         "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
+                        704,  # Image size (default)
+                        6,    # Border
+                        "High (30%)",  # Error correction
+                        16,   # Module size
                         "Square"
                     ],
                     [
                         "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
                         "https://instagram.com",
                         "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
+                        704,  # Image size (default)
+                        6,    # Border
+                        "High (30%)",  # Error correction
+                        16,   # Module size
                         "Square"
                     ],
                     [
@@ -1301,7 +1686,7 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                     ],
                     outputs=[artistic_output_image, artistic_error_message],
                     fn=generate_artistic_qr,
-                    cache_examples=False
+                    cache_examples=True
                 )
 
     app.launch(share=False, mcp_server=True)
