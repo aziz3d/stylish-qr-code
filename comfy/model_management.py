@@ -711,6 +711,12 @@ def maximum_vram_for_weights(device=None):
     return (get_total_memory(device) * 0.88 - minimum_inference_memory())
 
 def unet_dtype(device=None, model_params=0, supported_dtypes=[torch.float16, torch.bfloat16, torch.float32], weight_dtype=None):
+    # MPS workaround: Force fp32 for stability (PyTorch 2.6+ MPS bug)
+    if device is not None and is_device_mps(device):
+        return torch.float32
+    if mps_mode():
+        return torch.float32
+
     if model_params < 0:
         model_params = 1000000000000000000000
     if args.fp32_unet:
@@ -819,6 +825,12 @@ def text_encoder_initial_device(load_device, offload_device, model_size=0):
         return offload_device
 
 def text_encoder_dtype(device=None):
+    # MPS workaround: Force fp32 for stability (PyTorch 2.6+ MPS bug)
+    if device is not None and is_device_mps(device):
+        return torch.float32
+    if mps_mode():
+        return torch.float32
+
     if args.fp8_e4m3fn_text_enc:
         return torch.float8_e4m3fn
     elif args.fp8_e5m2_text_enc:
@@ -854,6 +866,12 @@ def vae_offload_device():
         return torch.device("cpu")
 
 def vae_dtype(device=None, allowed_dtypes=[]):
+    # MPS workaround: Force fp32 for stability (PyTorch 2.6+ MPS bug)
+    if device is not None and is_device_mps(device):
+        return torch.float32
+    if mps_mode():
+        return torch.float32
+
     if args.fp16_vae:
         return torch.float16
     elif args.bf16_vae:

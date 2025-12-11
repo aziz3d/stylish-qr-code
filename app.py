@@ -163,6 +163,69 @@ latentupscaleby = NODE_CLASS_MAPPINGS["LatentUpscaleBy"]()
 
 from comfy import model_management
 
+# MPS (Apple Silicon) comprehensive workaround for black QR code bug
+# Issue: PyTorch 2.6+ FP16 handling on MPS causes black images in samplers
+# Additional issue: MPS tensor operations can produce NaN/inf values (PyTorch bug #84364)
+# Solution: Monkey-patch dtype functions to force fp32, enable MPS fallback
+# References: https://civitai.com/articles/11106, https://github.com/pytorch/pytorch/issues/84364
+
+import os
+os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+
+from comfy.cli_args import args
+
+if torch.backends.mps.is_available():
+    print(f"MPS device detected (PyTorch {torch.__version__})")
+
+    # Store original dtype functions
+    _original_unet_dtype = model_management.unet_dtype
+    _original_vae_dtype = model_management.vae_dtype
+    _original_text_encoder_dtype = model_management.text_encoder_dtype
+
+    # Monkey-patch dtype functions to force fp32 for MPS
+    def mps_safe_unet_dtype(device=None, *args_inner, **kwargs):
+        if device is not None and model_management.is_device_mps(device):
+            return torch.float32
+        if model_management.mps_mode():
+            return torch.float32
+        return _original_unet_dtype(device, *args_inner, **kwargs)
+
+    def mps_safe_vae_dtype(device=None, *args_inner, **kwargs):
+        if device is not None and model_management.is_device_mps(device):
+            return torch.float32
+        if model_management.mps_mode():
+            return torch.float32
+        return _original_vae_dtype(device, *args_inner, **kwargs)
+
+    def mps_safe_text_encoder_dtype(device=None, *args_inner, **kwargs):
+        if device is not None and model_management.is_device_mps(device):
+            return torch.float32
+        if model_management.mps_mode():
+            return torch.float32
+        return _original_text_encoder_dtype(device, *args_inner, **kwargs)
+
+    # Replace functions in model_management module
+    model_management.unet_dtype = mps_safe_unet_dtype
+    model_management.vae_dtype = mps_safe_vae_dtype
+    model_management.text_encoder_dtype = mps_safe_text_encoder_dtype
+
+    # Set args for additional stability
+    args.force_fp32 = True
+    args.fp32_vae = True
+    args.fp32_unet = True
+    args.force_upcast_attention = True
+
+    # Performance settings: Tune these for speed vs stability
+    # Try uncommenting these one at a time for better speed:
+    args.lowvram = False              # Set to False for FASTER (try this first!)
+    args.use_split_cross_attention = False  # Set to False for even FASTER (might cause black images)
+
+    lowvram_status = "enabled" if args.lowvram else "disabled (faster)"
+    split_attn_status = "enabled" if args.use_split_cross_attention else "disabled (faster)"
+    print("  ✓ Enabled global fp32 dtype enforcement (monkey-patched)")
+    print("  ✓ Enabled MPS fallback mode")
+    print(f"  ✓ lowvram: {lowvram_status}, split-cross-attention: {split_attn_status}")
+
 # Add all the models that load a safetensors file
 model_loaders = [checkpointloadersimple_4, checkpointloadersimple_artistic]
 
