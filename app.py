@@ -239,7 +239,7 @@ valid_models = [
 model_management.load_models_gpu(valid_models)
 
 @spaces.GPU(duration=30)
-def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, pipeline: str = "standard", enable_upscale: bool = False, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 1.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7):
+def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, pipeline: str = "standard", enable_upscale: bool = False, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 1.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7, controlnet_strength_standard_first: float = 0.45, controlnet_strength_standard_final: float = 1.0):
     # Only manipulate the text if it's a URL input type
     qr_text = text_input
     if input_type == "URL":
@@ -253,11 +253,11 @@ def generate_qr_code_unified(prompt: str, text_input: str, input_type: str = "UR
 
     with torch.inference_mode():
         if pipeline == "standard":
-            yield from _pipeline_standard(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed, enable_upscale)
+            yield from _pipeline_standard(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed, enable_upscale, controlnet_strength_standard_first, controlnet_strength_standard_final)
         else:  # artistic
             yield from _pipeline_artistic(prompt, qr_text, input_type, image_size, border_size, error_correction, module_size, module_drawer, actual_seed, enable_upscale, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma, controlnet_strength_first, controlnet_strength_final)
 
-def generate_standard_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = False, enable_freeu: bool = False):
+def generate_standard_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = False, enable_freeu: bool = False, controlnet_strength_standard_first: float = 0.45, controlnet_strength_standard_final: float = 1.0):
     """Wrapper function for standard QR generation"""
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**64)
@@ -276,12 +276,14 @@ def generate_standard_qr(prompt: str, text_input: str, input_type: str = "URL", 
         "seed": actual_seed,
         "use_custom_seed": True,
         "enable_upscale": enable_upscale,
-        "enable_freeu": enable_freeu
+        "enable_freeu": enable_freeu,
+        "controlnet_strength_standard_first": controlnet_strength_standard_first,
+        "controlnet_strength_standard_final": controlnet_strength_standard_final
     }
     settings_json = generate_settings_json(settings_dict)
 
     # Generate QR and yield progressive results
-    generator = generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="standard", enable_upscale=enable_upscale)
+    generator = generate_qr_code_unified(prompt, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, pipeline="standard", enable_upscale=enable_upscale, controlnet_strength_standard_first=controlnet_strength_standard_first, controlnet_strength_standard_final=controlnet_strength_standard_final)
 
     final_image = None
     final_status = None
@@ -301,7 +303,7 @@ def generate_standard_qr(prompt: str, text_input: str, input_type: str = "URL", 
             gr.update(visible=True)  # Make accordion visible only at the end
         )
 
-def generate_artistic_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = True, enable_freeu: bool = True, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 0.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.7):
+def generate_artistic_qr(prompt: str, text_input: str, input_type: str = "URL", image_size: int = 512, border_size: int = 4, error_correction: str = "Medium (15%)", module_size: int = 12, module_drawer: str = "Square", use_custom_seed: bool = False, seed: int = 0, enable_upscale: bool = True, enable_freeu: bool = True, freeu_b1: float = 1.4, freeu_b2: float = 1.3, freeu_s1: float = 0.0, freeu_s2: float = 1.3, enable_sag: bool = True, sag_scale: float = 0.5, sag_blur_sigma: float = 0.5, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 0.70):
     """Wrapper function for artistic QR generation with FreeU and SAG parameters"""
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**64)
@@ -327,7 +329,9 @@ def generate_artistic_qr(prompt: str, text_input: str, input_type: str = "URL", 
         "freeu_s2": freeu_s2,
         "enable_sag": enable_sag,
         "sag_scale": sag_scale,
-        "sag_blur_sigma": sag_blur_sigma
+        "sag_blur_sigma": sag_blur_sigma,
+        "controlnet_strength_first": controlnet_strength_first,
+        "controlnet_strength_final": controlnet_strength_final
     }
     settings_json = generate_settings_json(settings_dict)
 
@@ -391,7 +395,7 @@ def load_settings_from_json_standard(json_string: str):
             return (
                 gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                 gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(), gr.update(),
+                gr.update(), gr.update(), gr.update(), gr.update(),
                 gr.update(value=error_msg, visible=True)
             )
 
@@ -408,13 +412,15 @@ def load_settings_from_json_standard(json_string: str):
         seed = params.get("seed", 718313)
         enable_upscale = params.get("enable_upscale", False)
         enable_freeu = params.get("enable_freeu", False)
+        controlnet_strength_standard_first = params.get("controlnet_strength_standard_first", 0.45)
+        controlnet_strength_standard_final = params.get("controlnet_strength_standard_final", 1.0)
 
         success_msg = "✅ Settings loaded successfully!"
         return (
             prompt, text_input, input_type, image_size, border_size,
             error_correction, module_size, module_drawer, use_custom_seed,
-            seed, enable_upscale, enable_freeu,
-            gr.update(value=success_msg, visible=True)
+            seed, enable_upscale, enable_freeu, controlnet_strength_standard_first,
+            controlnet_strength_standard_final, gr.update(value=success_msg, visible=True)
         )
 
     except json.JSONDecodeError as e:
@@ -422,7 +428,7 @@ def load_settings_from_json_standard(json_string: str):
         return (
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(value=error_msg, visible=True)
         )
     except Exception as e:
@@ -430,7 +436,7 @@ def load_settings_from_json_standard(json_string: str):
         return (
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(), gr.update(),
+            gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(value=error_msg, visible=True)
         )
 
@@ -448,8 +454,8 @@ def load_settings_from_json_artistic(json_string: str):
                 gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                 gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
                 gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(), gr.update(), gr.update(), gr.update(),
-                gr.update(value=error_msg, visible=True)
+                gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+                gr.update(), gr.update(value=error_msg, visible=True)
             )
 
         # Extract parameters with defaults
@@ -472,14 +478,16 @@ def load_settings_from_json_artistic(json_string: str):
         enable_sag = params.get("enable_sag", True)
         sag_scale = params.get("sag_scale", 0.5)
         sag_blur_sigma = params.get("sag_blur_sigma", 0.5)
+        controlnet_strength_first = params.get("controlnet_strength_first", 0.45)
+        controlnet_strength_final = params.get("controlnet_strength_final", 0.7)
 
         success_msg = "✅ Settings loaded successfully!"
         return (
             prompt, text_input, input_type, image_size, border_size,
             error_correction, module_size, module_drawer, use_custom_seed,
             seed, enable_upscale, enable_freeu, freeu_b1, freeu_b2, freeu_s1,
-            freeu_s2, enable_sag, sag_scale, sag_blur_sigma,
-            gr.update(value=success_msg, visible=True)
+            freeu_s2, enable_sag, sag_scale, sag_blur_sigma, controlnet_strength_first,
+            controlnet_strength_final, gr.update(value=success_msg, visible=True)
         )
 
     except json.JSONDecodeError as e:
@@ -488,8 +496,8 @@ def load_settings_from_json_artistic(json_string: str):
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(value=error_msg, visible=True)
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(value=error_msg, visible=True)
         )
     except Exception as e:
         error_msg = f"❌ Error loading settings: {str(e)}"
@@ -497,8 +505,8 @@ def load_settings_from_json_artistic(json_string: str):
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
             gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(), gr.update(), gr.update(), gr.update(),
-            gr.update(value=error_msg, visible=True)
+            gr.update(), gr.update(), gr.update(), gr.update(), gr.update(),
+            gr.update(), gr.update(value=error_msg, visible=True)
         )
 
 def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_size: int, module_size: int = 12):
@@ -588,7 +596,7 @@ def add_noise_to_border_only(image_tensor, seed: int, border_size: int, image_si
     # Convert back to tensor
     return torch.from_numpy(img_np).to(image_tensor.device)
 
-def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int, enable_upscale: bool = False):
+def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: int, border_size: int, error_correction: str, module_size: int, module_drawer: str, seed: int, enable_upscale: bool = False, controlnet_strength_first: float = 0.45, controlnet_strength_final: float = 1.0):
     emptylatentimage_5 = emptylatentimage.generate(
         width=image_size, height=image_size, batch_size=1
     )
@@ -651,7 +659,7 @@ def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: i
 
     for q in range(1):
         controlnetapplyadvanced_11 = controlnetapplyadvanced.apply_controlnet(
-            strength=0.45,
+            strength=controlnet_strength_first,
             start_percent=0,
             end_percent=1,
             positive=get_value_at_index(cliptextencode_6, 0),
@@ -668,7 +676,7 @@ def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: i
         )
 
         controlnetapplyadvanced_13 = controlnetapplyadvanced.apply_controlnet(
-            strength=0.45,
+            strength=controlnet_strength_first,
             start_percent=0,
             end_percent=1,
             positive=get_value_at_index(controlnetapplyadvanced_11, 0),
@@ -704,7 +712,7 @@ def _pipeline_standard(prompt: str, qr_text: str, input_type: str, image_size: i
         yield mid_pil, "First enhancement pass complete (step 2/3)… refining details"
 
         controlnetapplyadvanced_20 = controlnetapplyadvanced.apply_controlnet(
-            strength=1,
+            strength=controlnet_strength_final,
             start_percent=0,
             end_percent=1,
             positive=get_value_at_index(cliptextencode_6, 0),
@@ -790,9 +798,19 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
     base_qr_np = base_qr_np[0]
     base_qr_pil = Image.fromarray(base_qr_np)
 
+    # Calculate total steps based on border and upscale
+    total_steps = 3  # Base: first pass, final refinement, final result
+    if border_size > 0:
+        total_steps += 1  # Add border noise step
+    if enable_upscale:
+        total_steps += 1  # Add upscale step
+
+    current_step = 1
+
     # Only add noise if there's a border (border_size > 0)
     if border_size > 0:
-        yield base_qr_pil, "Generated base QR pattern... adding QR-like cubics to border (step 1/5)"
+        yield base_qr_pil, f"Generated base QR pattern... adding QR-like cubics to border (step {current_step}/{total_steps})"
+        current_step += 1
 
         # Add QR-like cubic patterns ONLY to border region (extends QR structure into border)
         # Density automatically matches QR code interior density for natural transition
@@ -808,11 +826,13 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         noisy_qr_np = (qr_with_border_noise.cpu().numpy() * 255).astype(np.uint8)
         noisy_qr_np = noisy_qr_np[0]
         noisy_qr_pil = Image.fromarray(noisy_qr_np)
-        yield noisy_qr_pil, "Added QR-like cubics to border... enhancing with AI (step 2/5)"
+        yield noisy_qr_pil, f"Added QR-like cubics to border... enhancing with AI (step {current_step}/{total_steps})"
+        current_step += 1
     else:
         # No border, skip noise
         qr_with_border_noise = get_value_at_index(comfy_qr, 0)
-        yield base_qr_pil, "Generated base QR pattern (no border)... enhancing with AI (step 1/4)"
+        yield base_qr_pil, f"Generated base QR pattern (no border)... enhancing with AI (step {current_step}/{total_steps})"
+        current_step += 1
 
     # Generate latent image
     latent_image = emptylatentimage.generate(
@@ -918,12 +938,8 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
     first_pass_np = (first_pass_tensor.cpu().numpy() * 255).astype(np.uint8)
     first_pass_np = first_pass_np[0]
     first_pass_pil = Image.fromarray(first_pass_np)
-    # Calculate step based on border and upscale
-    if enable_upscale:
-        step_msg = "First enhancement pass complete (step 3/5)... final refinement pass" if border_size > 0 else "First enhancement pass complete (step 2/4)... final refinement pass"
-    else:
-        step_msg = "First enhancement pass complete (step 3/4)... final refinement pass" if border_size > 0 else "First enhancement pass complete (step 2/3)... final refinement pass"
-    yield first_pass_pil, step_msg
+    yield first_pass_pil, f"First enhancement pass complete (step {current_step}/{total_steps})... final refinement pass"
+    current_step += 1
 
     # Final ControlNet pass (second pass - refinement)
     controlnet_apply_final = controlnetapplyadvanced.apply_controlnet(
@@ -971,8 +987,8 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         pre_upscale_np = (pre_upscale_tensor.cpu().numpy() * 255).astype(np.uint8)
         pre_upscale_np = pre_upscale_np[0]
         pre_upscale_pil = Image.fromarray(pre_upscale_np)
-        step_msg = "Final refinement complete (step 4/5)... upscaling image" if border_size > 0 else "Final refinement complete (step 3/4)... upscaling image"
-        yield pre_upscale_pil, step_msg
+        yield pre_upscale_pil, f"Final refinement complete (step {current_step}/{total_steps})... upscaling image"
+        current_step += 1
 
         # Upscale image with model (after final samples, before returning)
         upscaled = imageupscalewithmodel.upscale(
@@ -985,16 +1001,14 @@ def _pipeline_artistic(prompt: str, qr_text: str, input_type: str, image_size: i
         image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
-        step_msg = "No errors, all good! Final artistic QR code generated and upscaled. (step 5/5)" if border_size > 0 else "No errors, all good! Final artistic QR code generated and upscaled. (step 4/4)"
-        yield final_image, step_msg
+        yield final_image, f"No errors, all good! Final artistic QR code generated and upscaled. (step {current_step}/{total_steps})"
     else:
         # No upscaling
         image_tensor = get_value_at_index(final_decoded, 0)
         image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
-        step_msg = "No errors, all good! Final artistic QR code generated. (step 4/4)" if border_size > 0 else "No errors, all good! Final artistic QR code generated. (step 3/3)"
-        yield final_image, step_msg
+        yield final_image, f"No errors, all good! Final artistic QR code generated. (step {current_step}/{total_steps})"
 
 
 if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
@@ -1173,6 +1187,26 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                                 info="Seed value for reproducibility. Same seed with same settings will produce the same result."
                             )
 
+                            # ControlNet Strength Parameters
+                            gr.Markdown("### ControlNet Strength (QR Code Preservation)")
+                            gr.Markdown("**IMPORTANT:** Lower values preserve QR structure better (more scannable). Higher values create more artistic effects but may reduce scannability.")
+                            controlnet_strength_standard_first = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.0,
+                                step=0.05,
+                                value=0.45,
+                                label="First Pass Strength (Brightness + Tile)",
+                                info="Controls how much the AI modifies the QR in both ControlNet passes. LOWER = more scannable, HIGHER = more artistic. Try 0.35-0.50 for good balance. Default: 0.45"
+                            )
+                            controlnet_strength_standard_final = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.0,
+                                step=0.05,
+                                value=1.0,
+                                label="Final Pass Strength (Tile Refinement)",
+                                info="Controls the final tile ControlNet pass strength. Usually kept at 1.0 for clarity. Default: 1.0"
+                            )
+
                         # The generate button
                         generate_btn = gr.Button("Generate Standard QR", variant="primary")
 
@@ -1196,7 +1230,7 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                 # When clicking the button, it will trigger the main function
                 generate_btn.click(
                     fn=generate_standard_qr,
-                    inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, enable_upscale, enable_freeu_standard],
+                    inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, enable_upscale, enable_freeu_standard, controlnet_strength_standard_first, controlnet_strength_standard_final],
                     outputs=[output_image, error_message, settings_output_standard, settings_accordion_standard]
                 )
 
@@ -1217,6 +1251,8 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         seed,
                         enable_upscale,
                         enable_freeu_standard,
+                        controlnet_strength_standard_first,
+                        controlnet_strength_standard_final,
                         import_status_standard
                     ]
                 )
@@ -1562,6 +1598,26 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                                 info="Blur amount for artistic blending. Higher values create softer, more artistic effects. Range: 0.0-5.0, Default: 0.5"
                             )
 
+                            # ControlNet Strength Parameters
+                            gr.Markdown("### ControlNet Strength (QR Code Preservation)")
+                            gr.Markdown("**IMPORTANT:** Lower values preserve QR structure better (more scannable). Higher values create more artistic effects but may reduce scannability.")
+                            controlnet_strength_first = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.0,
+                                step=0.05,
+                                value=0.45,
+                                label="First Pass Strength",
+                                info="Controls how much the AI modifies the QR in the first pass. LOWER = more scannable, HIGHER = more artistic. Try 0.30-0.40 for better scannability. Default: 0.45"
+                            )
+                            controlnet_strength_final = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.0,
+                                step=0.05,
+                                value=0.7,
+                                label="Final Pass Strength",
+                                info="Controls how much the AI modifies the QR in the refinement pass. LOWER = preserves QR structure, HIGHER = more creative. Try 0.55-0.65 for balance. Default: 0.70"
+                            )
+
                         # The generate button for artistic QR
                         artistic_generate_btn = gr.Button("Generate Artistic QR", variant="primary")
 
@@ -1585,7 +1641,7 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                 # When clicking the button, it will trigger the artistic function
                 artistic_generate_btn.click(
                     fn=generate_artistic_qr,
-                    inputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, artistic_enable_upscale, enable_freeu_artistic, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma],
+                    inputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, artistic_enable_upscale, enable_freeu_artistic, freeu_b1, freeu_b2, freeu_s1, freeu_s2, enable_sag, sag_scale, sag_blur_sigma, controlnet_strength_first, controlnet_strength_final],
                     outputs=[artistic_output_image, artistic_error_message, settings_output_artistic, settings_accordion_artistic]
                 )
 
@@ -1613,6 +1669,8 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         enable_sag,
                         sag_scale,
                         sag_blur_sigma,
+                        controlnet_strength_first,
+                        controlnet_strength_final,
                         import_status_artistic
                     ]
                 )
@@ -1641,7 +1699,9 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         6,    # Border
                         "Medium (15%)",  # Error correction
                         14,   # Module size
-                        "Square"
+                        "Square",
+                        True,  # use_custom_seed
+                        718313  # seed
                     ],
                     [
                         "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
@@ -1651,7 +1711,9 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         6,    # Border
                         "High (30%)",  # Error correction
                         16,   # Module size
-                        "Square"
+                        "Square",
+                        True,  # use_custom_seed
+                        718313  # seed
                     ],
                     [
                         "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
@@ -1661,7 +1723,9 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         6,    # Border
                         "High (30%)",  # Error correction
                         16,   # Module size
-                        "Square"
+                        "Square",
+                        True,  # use_custom_seed
+                        718313  # seed
                     ],
                     [
                         "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
@@ -1671,7 +1735,9 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         6,    # Border
                         "High (30%)",  # Error correction
                         16,   # Module size
-                        "Square"
+                        "Square",
+                        True,  # use_custom_seed
+                        718313  # seed
                     ],
                     [
                         "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
@@ -1681,7 +1747,9 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         6,    # Border
                         "High (30%)",  # Error correction
                         16,   # Module size
-                        "Square"
+                        "Square",
+                        True,  # use_custom_seed
+                        718313  # seed
                     ],
                     [
                         "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
@@ -1691,7 +1759,9 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         6,    # Border
                         "High (30%)",  # Error correction
                         16,   # Module size
-                        "Square"
+                        "Square",
+                        True,  # use_custom_seed
+                        718313  # seed
                     ],
                     [
                         "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
@@ -1704,34 +1774,40 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         "Square"
                     ],
                     [
-                        "wifi network symbol, modern tech, digital art, glowing blue, detailed, 8k, ultra detailed",
+                        "aerial bird view of ancient Roman city, cobblestone streets and pathways forming intricate patterns, vintage illustration style, sepia tones, aged parchment look, detailed architecture, 8k, ultra detailed",
                         "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
                         "Plain Text",
-                        576,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
+                        832,  # Image size
+                        6,    # Border
+                        "High (30%)",  # Error correction
+                        16,   # Module size
+                        "Square",
+                        True,  # use_custom_seed
+                        718313  # seed
                     ],
                     [
-                        "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
+                        "ancient stone sundial in Mediterranean garden, olive trees, dappled sunlight through leaves, weathered stone texture, peaceful afternoon scene, photorealistic, detailed, 8k, ultra detailed",
                         "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
                         "Plain Text",
-                        832,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
+                        1024,  # Image size
+                        6,     # Border
+                        "High (30%)",  # Error correction
+                        14,    # Module size
+                        "Square",
+                        True,  # use_custom_seed
+                        413468  # seed (custom for meeting)
                     ],
                     [
-                        "location pin on map, travel destination, scenic view, detailed cartography, 8k, ultra detailed",
+                        "aerial view of terraced rice fields on mountainside, winding pathways between green paddies, Asian countryside, bird's eye perspective, detailed landscape, golden hour lighting, photorealistic, 8k, ultra detailed",
                         "geo:37.7749,-122.4194",
                         "Plain Text",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
+                        704,  # Image size (default)
+                        6,    # Border
+                        "High (30%)",  # Error correction
+                        16,   # Module size
+                        "Square",
+                        True,  # use_custom_seed
+                        962359  # seed (custom for location)
                     ]
                 ]
 
@@ -1745,7 +1821,9 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         artistic_border_size,
                         artistic_error_correction,
                         artistic_module_size,
-                        artistic_module_drawer
+                        artistic_module_drawer,
+                        artistic_use_custom_seed,
+                        artistic_seed
                     ],
                     outputs=[artistic_output_image, artistic_error_message],
                     fn=generate_artistic_qr,
