@@ -1029,369 +1029,17 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
         - **Copy/paste settings**: After generation, copy the JSON settings string that appears below the image and paste it into "Import Settings from JSON" to reproduce exact results or share with others
 
         ### Two Modes:
-        - **Standard QR**: Stable, accurate QR code generation (faster, more scannable, less creative)
-        - **Artistic QR**: More artistic and creative results with upscaling (slower, more creative, less scannable)
+        - **Artistic QR** (New pipeline, default): More artistic and creative results with upscaling (slower, more creative, less scannable)
+        - **Standard QR** (Old pipeline, more stable): Stable, accurate QR code generation (faster, more scannable, less creative)
 
         ### Note:
+        Selecting image_size more then 704 might fail to generate image when other users are trying app at the same time.
+
         Feel free to share your suggestions or feedback on how to improve the app! Thanks!
         """)
 
         # Add tabs for different generation methods
         with gr.Tabs():
-            # STANDARD QR TAB
-            with gr.TabItem("Standard QR"):
-                with gr.Row():
-                    with gr.Column():
-                        # Add input type selector
-                        input_type = gr.Radio(
-                            choices=["URL", "Plain Text"],
-                            value="URL",
-                            label="Input Type",
-                            info="URL: For web links (auto-removes https://). Plain Text: For VCARD, WiFi, calendar, location, etc. (no manipulation)"
-                        )
-
-                        # Add inputs
-                        prompt_input = gr.Textbox(
-                            label="Prompt",
-                            placeholder="Describe the image you want to generate (check examples below for inspiration)",
-                            value="Enter your prompt here... For example: 'a beautiful sunset over mountains, photorealistic, detailed landscape'",
-                            lines=3
-                        )
-                        text_input = gr.Textbox(
-                            label="QR Code Content",
-                            placeholder="Enter URL or plain text",
-                            value="Enter your URL or text here... For example: https://github.com",
-                            lines=3
-                        )
-
-                        # Import Settings section - separate accordion
-                        with gr.Accordion("Import Settings from JSON", open=False):
-                            gr.Markdown("Paste a settings JSON string (copied from a previous generation) to load all parameters at once.")
-                            import_json_input_standard = gr.Textbox(
-                                label="Paste Settings JSON",
-                                placeholder='{"pipeline": "standard", "prompt": "...", "seed": 718313, ...}',
-                                lines=3
-                            )
-                            import_status_standard = gr.Textbox(
-                                label="Import Status",
-                                interactive=False,
-                                visible=False,
-                                lines=2
-                            )
-                            with gr.Row():
-                                load_settings_btn_standard = gr.Button("Load Settings", variant="primary")
-                                clear_json_btn_standard = gr.Button("Clear", variant="secondary")
-
-                        # Change Settings Manually - separate accordion
-                        with gr.Accordion("Change Settings Manually", open=False):
-                            # Add image size slider
-                            image_size = gr.Slider(
-                                minimum=512,
-                                maximum=1024,
-                                step=64,
-                                value=512,
-                                label="Image Size",
-                                info="Base size of the generated image. Final output will be 2x this size (e.g., 512 → 1024) due to the two-step enhancement process. Higher values use more VRAM and take longer to process."
-                            )
-
-                            # Add border size slider
-                            border_size = gr.Slider(
-                                minimum=0,
-                                maximum=8,
-                                step=1,
-                                value=4,
-                                label="QR Code Border Size",
-                                info="Number of modules (squares) to use as border around the QR code. Higher values add more whitespace."
-                            )
-
-                            # Add error correction dropdown
-                            error_correction = gr.Dropdown(
-                                choices=["Low (7%)", "Medium (15%)", "Quartile (25%)", "High (30%)"],
-                                value="Medium (15%)",
-                                label="Error Correction Level",
-                                info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. Medium (15%) is a good starting point for most uses."
-                            )
-
-                            # Add module size slider
-                            module_size = gr.Slider(
-                                minimum=4,
-                                maximum=16,
-                                step=1,
-                                value=12,
-                                label="QR Module Size",
-                                info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 12 is a good starting point."
-                            )
-
-                            # Add module drawer dropdown with style examples
-                            module_drawer = gr.Dropdown(
-                                choices=["Square", "Gapped Square", "Circle", "Rounded", "Vertical bars", "Horizontal bars"],
-                                value="Square",
-                                label="QR Code Style",
-                                info="Select the style of the QR code modules (squares). See examples below. Different styles can give your QR code a unique look while maintaining scannability."
-                            )
-
-                            # Add style examples with labels
-                            gr.Markdown("### Style Examples:")
-
-                            # First row of examples
-                            with gr.Row():
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Square**", show_label=False)
-                                    gr.Image("custom_nodes/ComfyQR/img/square.png", width=100, show_label=False, show_download_button=False)
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Gapped Square**", show_label=False)
-                                    gr.Image("custom_nodes/ComfyQR/img/gapped_square.png", width=100, show_label=False, show_download_button=False)
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Circle**", show_label=False)
-                                    gr.Image("custom_nodes/ComfyQR/img/circle.png", width=100, show_label=False, show_download_button=False)
-
-                            # Second row of examples
-                            with gr.Row():
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Rounded**", show_label=False)
-                                    gr.Image("custom_nodes/ComfyQR/img/rounded.png", width=100, show_label=False, show_download_button=False)
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Vertical Bars**", show_label=False)
-                                    gr.Image("custom_nodes/ComfyQR/img/vertical-bars.png", width=100, show_label=False, show_download_button=False)
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Horizontal Bars**", show_label=False)
-                                    gr.Image("custom_nodes/ComfyQR/img/horizontal-bars.png", width=100, show_label=False, show_download_button=False)
-
-                            # Add upscale checkbox
-                            enable_upscale = gr.Checkbox(
-                                label="Enable Upscaling",
-                                value=False,
-                                info="Enable upscaling with RealESRGAN for higher quality output (disabled by default for standard pipeline)"
-                            )
-
-                            # Add FreeU checkbox
-                            enable_freeu_standard = gr.Checkbox(
-                                label="Enable FreeU",
-                                value=False,
-                                info="Enable FreeU quality enhancement (disabled by default for standard pipeline)"
-                            )
-
-                            # Add seed controls
-                            use_custom_seed = gr.Checkbox(
-                                label="Use Custom Seed",
-                                value=True,
-                                info="Enable to use a specific seed for reproducible results"
-                            )
-                            seed = gr.Slider(
-                                minimum=0,
-                                maximum=2000000,
-                                step=1,
-                                value=718313,
-                                label="Seed",
-                                visible=True,  # Initially visible since use_custom_seed=True
-                                info="Seed value for reproducibility. Same seed with same settings will produce the same result."
-                            )
-
-                            # ControlNet Strength Parameters
-                            gr.Markdown("### ControlNet Strength (QR Code Preservation)")
-                            gr.Markdown("**IMPORTANT:** Lower values preserve QR structure better (more scannable). Higher values create more artistic effects but may reduce scannability.")
-                            controlnet_strength_standard_first = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.0,
-                                step=0.05,
-                                value=0.45,
-                                label="First Pass Strength (Brightness + Tile)",
-                                info="Controls how much the AI modifies the QR in both ControlNet passes. LOWER = more scannable, HIGHER = more artistic. Try 0.35-0.50 for good balance. Default: 0.45"
-                            )
-                            controlnet_strength_standard_final = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.0,
-                                step=0.05,
-                                value=1.0,
-                                label="Final Pass Strength (Tile Refinement)",
-                                info="Controls the final tile ControlNet pass strength. Usually kept at 1.0 for clarity. Default: 1.0"
-                            )
-
-                        # The generate button
-                        generate_btn = gr.Button("Generate Standard QR", variant="primary")
-
-                    with gr.Column():
-                        # The output image
-                        output_image = gr.Image(label="Generated Standard QR Code")
-                        error_message = gr.Textbox(
-                            label="Status / Errors",
-                            interactive=False,
-                            lines=3,
-                        )
-                        # Wrap settings output in accordion (initially hidden)
-                        with gr.Accordion("Shareable Settings (JSON)", open=True, visible=False) as settings_accordion_standard:
-                            settings_output_standard = gr.Textbox(
-                                label="Copy this JSON to share your exact settings",
-                                interactive=True,
-                                lines=5,
-                                show_copy_button=True
-                            )
-
-                # When clicking the button, it will trigger the main function
-                generate_btn.click(
-                    fn=generate_standard_qr,
-                    inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, enable_upscale, enable_freeu_standard, controlnet_strength_standard_first, controlnet_strength_standard_final],
-                    outputs=[output_image, error_message, settings_output_standard, settings_accordion_standard]
-                )
-
-                # Load Settings button event handler
-                load_settings_btn_standard.click(
-                    fn=load_settings_from_json_standard,
-                    inputs=[import_json_input_standard],
-                    outputs=[
-                        prompt_input,
-                        text_input,
-                        input_type,
-                        image_size,
-                        border_size,
-                        error_correction,
-                        module_size,
-                        module_drawer,
-                        use_custom_seed,
-                        seed,
-                        enable_upscale,
-                        enable_freeu_standard,
-                        controlnet_strength_standard_first,
-                        controlnet_strength_standard_final,
-                        import_status_standard
-                    ]
-                )
-
-                # Clear button event handler
-                clear_json_btn_standard.click(
-                    fn=lambda: ("", gr.update(visible=False)),
-                    inputs=[],
-                    outputs=[import_json_input_standard, import_status_standard]
-                )
-
-                # Seed slider visibility toggle
-                use_custom_seed.change(
-                    fn=lambda x: gr.update(visible=x),
-                    inputs=[use_custom_seed],
-                    outputs=[seed]
-                )
-
-                # Add examples
-                examples = [
-                    [
-                        "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-                        "https://www.google.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ],
-                    [
-                        "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-                        "https://store.steampowered.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ],
-                    [
-                        "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
-                        "https://github.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ],
-                    [
-                        "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
-                        "https://twitter.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ],
-                    [
-                        "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
-                        "https://linkedin.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ],
-                    [
-                        "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
-                        "https://instagram.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ],
-                    [
-                        "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
-                        "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nORG:Acme Corporation\nTITLE:Software Engineer\nTEL:+1-555-123-4567\nEMAIL:john.doe@example.com\nEND:VCARD",
-                        "Plain Text",
-                        832,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ],
-                    [
-                        "wifi network symbol, modern tech, digital art, glowing blue, detailed, 8k, ultra detailed",
-                        "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
-                        "Plain Text",
-                        576,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ],
-                    [
-                        "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
-                        "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
-                        "Plain Text",
-                        832,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ],
-                    [
-                        "location pin on map, travel destination, scenic view, detailed cartography, 8k, ultra detailed",
-                        "geo:37.7749,-122.4194",
-                        "Plain Text",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square"
-                    ]
-                ]
-
-                gr.Examples(
-                    examples=examples,
-                    inputs=[
-                        prompt_input,
-                        text_input,
-                        input_type,
-                        image_size,
-                        border_size,
-                        error_correction,
-                        module_size,
-                        module_drawer
-                    ],
-                    outputs=[output_image, error_message],
-                    fn=generate_standard_qr,
-                    cache_examples=False
-                )
-
             # ARTISTIC QR TAB
             with gr.TabItem("Artistic QR"):
                 with gr.Row():
@@ -1791,82 +1439,300 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                     outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
                 )
 
-                gr.Markdown("---")
-                gr.Markdown("### All Examples (Text-based)")
+            # STANDARD QR TAB
+            with gr.TabItem("Standard QR"):
+                with gr.Row():
+                    with gr.Column():
+                        # Add input type selector
+                        input_type = gr.Radio(
+                            choices=["URL", "Plain Text"],
+                            value="URL",
+                            label="Input Type",
+                            info="URL: For web links (auto-removes https://). Plain Text: For VCARD, WiFi, calendar, location, etc. (no manipulation)"
+                        )
 
-                # Add examples for artistic QR
-                artistic_examples = [
+                        # Add inputs
+                        prompt_input = gr.Textbox(
+                            label="Prompt",
+                            placeholder="Describe the image you want to generate (check examples below for inspiration)",
+                            value="Enter your prompt here... For example: 'a beautiful sunset over mountains, photorealistic, detailed landscape'",
+                            lines=3
+                        )
+                        text_input = gr.Textbox(
+                            label="QR Code Content",
+                            placeholder="Enter URL or plain text",
+                            value="Enter your URL or text here... For example: https://github.com",
+                            lines=3
+                        )
+
+                        # Import Settings section - separate accordion
+                        with gr.Accordion("Import Settings from JSON", open=False):
+                            gr.Markdown("Paste a settings JSON string (copied from a previous generation) to load all parameters at once.")
+                            import_json_input_standard = gr.Textbox(
+                                label="Paste Settings JSON",
+                                placeholder='{"pipeline": "standard", "prompt": "...", "seed": 718313, ...}',
+                                lines=3
+                            )
+                            import_status_standard = gr.Textbox(
+                                label="Import Status",
+                                interactive=False,
+                                visible=False,
+                                lines=2
+                            )
+                            with gr.Row():
+                                load_settings_btn_standard = gr.Button("Load Settings", variant="primary")
+                                clear_json_btn_standard = gr.Button("Clear", variant="secondary")
+
+                        # Change Settings Manually - separate accordion
+                        with gr.Accordion("Change Settings Manually", open=False):
+                            # Add image size slider
+                            image_size = gr.Slider(
+                                minimum=512,
+                                maximum=1024,
+                                step=64,
+                                value=512,
+                                label="Image Size",
+                                info="Base size of the generated image. Final output will be 2x this size (e.g., 512 → 1024) due to the two-step enhancement process. Higher values use more VRAM and take longer to process."
+                            )
+
+                            # Add border size slider
+                            border_size = gr.Slider(
+                                minimum=0,
+                                maximum=8,
+                                step=1,
+                                value=4,
+                                label="QR Code Border Size",
+                                info="Number of modules (squares) to use as border around the QR code. Higher values add more whitespace."
+                            )
+
+                            # Add error correction dropdown
+                            error_correction = gr.Dropdown(
+                                choices=["Low (7%)", "Medium (15%)", "Quartile (25%)", "High (30%)"],
+                                value="Medium (15%)",
+                                label="Error Correction Level",
+                                info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. Medium (15%) is a good starting point for most uses."
+                            )
+
+                            # Add module size slider
+                            module_size = gr.Slider(
+                                minimum=4,
+                                maximum=16,
+                                step=1,
+                                value=12,
+                                label="QR Module Size",
+                                info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 12 is a good starting point."
+                            )
+
+                            # Add module drawer dropdown with style examples
+                            module_drawer = gr.Dropdown(
+                                choices=["Square", "Gapped Square", "Circle", "Rounded", "Vertical bars", "Horizontal bars"],
+                                value="Square",
+                                label="QR Code Style",
+                                info="Select the style of the QR code modules (squares). See examples below. Different styles can give your QR code a unique look while maintaining scannability."
+                            )
+
+                            # Add style examples with labels
+                            gr.Markdown("### Style Examples:")
+
+                            # First row of examples
+                            with gr.Row():
+                                with gr.Column(scale=1, min_width=0):
+                                    gr.Markdown("**Square**", show_label=False)
+                                    gr.Image("custom_nodes/ComfyQR/img/square.png", width=100, show_label=False, show_download_button=False)
+                                with gr.Column(scale=1, min_width=0):
+                                    gr.Markdown("**Gapped Square**", show_label=False)
+                                    gr.Image("custom_nodes/ComfyQR/img/gapped_square.png", width=100, show_label=False, show_download_button=False)
+                                with gr.Column(scale=1, min_width=0):
+                                    gr.Markdown("**Circle**", show_label=False)
+                                    gr.Image("custom_nodes/ComfyQR/img/circle.png", width=100, show_label=False, show_download_button=False)
+
+                            # Second row of examples
+                            with gr.Row():
+                                with gr.Column(scale=1, min_width=0):
+                                    gr.Markdown("**Rounded**", show_label=False)
+                                    gr.Image("custom_nodes/ComfyQR/img/rounded.png", width=100, show_label=False, show_download_button=False)
+                                with gr.Column(scale=1, min_width=0):
+                                    gr.Markdown("**Vertical Bars**", show_label=False)
+                                    gr.Image("custom_nodes/ComfyQR/img/vertical-bars.png", width=100, show_label=False, show_download_button=False)
+                                with gr.Column(scale=1, min_width=0):
+                                    gr.Markdown("**Horizontal Bars**", show_label=False)
+                                    gr.Image("custom_nodes/ComfyQR/img/horizontal-bars.png", width=100, show_label=False, show_download_button=False)
+
+                            # Add upscale checkbox
+                            enable_upscale = gr.Checkbox(
+                                label="Enable Upscaling",
+                                value=False,
+                                info="Enable upscaling with RealESRGAN for higher quality output (disabled by default for standard pipeline)"
+                            )
+
+                            # Add FreeU checkbox
+                            enable_freeu_standard = gr.Checkbox(
+                                label="Enable FreeU",
+                                value=False,
+                                info="Enable FreeU quality enhancement (disabled by default for standard pipeline)"
+                            )
+
+                            # Add seed controls
+                            use_custom_seed = gr.Checkbox(
+                                label="Use Custom Seed",
+                                value=True,
+                                info="Enable to use a specific seed for reproducible results"
+                            )
+                            seed = gr.Slider(
+                                minimum=0,
+                                maximum=2000000,
+                                step=1,
+                                value=718313,
+                                label="Seed",
+                                visible=True,  # Initially visible since use_custom_seed=True
+                                info="Seed value for reproducibility. Same seed with same settings will produce the same result."
+                            )
+
+                            # ControlNet Strength Parameters
+                            gr.Markdown("### ControlNet Strength (QR Code Preservation)")
+                            gr.Markdown("**IMPORTANT:** Lower values preserve QR structure better (more scannable). Higher values create more artistic effects but may reduce scannability.")
+                            controlnet_strength_standard_first = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.0,
+                                step=0.05,
+                                value=0.45,
+                                label="First Pass Strength (Brightness + Tile)",
+                                info="Controls how much the AI modifies the QR in both ControlNet passes. LOWER = more scannable, HIGHER = more artistic. Try 0.35-0.50 for good balance. Default: 0.45"
+                            )
+                            controlnet_strength_standard_final = gr.Slider(
+                                minimum=0.0,
+                                maximum=1.0,
+                                step=0.05,
+                                value=1.0,
+                                label="Final Pass Strength (Tile Refinement)",
+                                info="Controls the final tile ControlNet pass strength. Usually kept at 1.0 for clarity. Default: 1.0"
+                            )
+
+                        # The generate button
+                        generate_btn = gr.Button("Generate Standard QR", variant="primary")
+
+                    with gr.Column():
+                        # The output image
+                        output_image = gr.Image(label="Generated Standard QR Code")
+                        error_message = gr.Textbox(
+                            label="Status / Errors",
+                            interactive=False,
+                            lines=3,
+                        )
+                        # Wrap settings output in accordion (initially hidden)
+                        with gr.Accordion("Shareable Settings (JSON)", open=True, visible=False) as settings_accordion_standard:
+                            settings_output_standard = gr.Textbox(
+                                label="Copy this JSON to share your exact settings",
+                                interactive=True,
+                                lines=5,
+                                show_copy_button=True
+                            )
+
+                # When clicking the button, it will trigger the main function
+                generate_btn.click(
+                    fn=generate_standard_qr,
+                    inputs=[prompt_input, text_input, input_type, image_size, border_size, error_correction, module_size, module_drawer, use_custom_seed, seed, enable_upscale, enable_freeu_standard, controlnet_strength_standard_first, controlnet_strength_standard_final],
+                    outputs=[output_image, error_message, settings_output_standard, settings_accordion_standard]
+                )
+
+                # Load Settings button event handler
+                load_settings_btn_standard.click(
+                    fn=load_settings_from_json_standard,
+                    inputs=[import_json_input_standard],
+                    outputs=[
+                        prompt_input,
+                        text_input,
+                        input_type,
+                        image_size,
+                        border_size,
+                        error_correction,
+                        module_size,
+                        module_drawer,
+                        use_custom_seed,
+                        seed,
+                        enable_upscale,
+                        enable_freeu_standard,
+                        controlnet_strength_standard_first,
+                        controlnet_strength_standard_final,
+                        import_status_standard
+                    ]
+                )
+
+                # Clear button event handler
+                clear_json_btn_standard.click(
+                    fn=lambda: ("", gr.update(visible=False)),
+                    inputs=[],
+                    outputs=[import_json_input_standard, import_status_standard]
+                )
+
+                # Seed slider visibility toggle
+                use_custom_seed.change(
+                    fn=lambda x: gr.update(visible=x),
+                    inputs=[use_custom_seed],
+                    outputs=[seed]
+                )
+
+                # Add examples
+                examples = [
                     [
-                        "some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
+                        "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
                         "https://www.google.com",
                         "URL",
-                        640,  # Image size
-                        6,    # Border
-                        "Medium (15%)",  # Error correction
-                        14,   # Module size
-                        "Square",
-                        True,  # use_custom_seed
-                        718313  # seed
+                        512,
+                        4,
+                        "Medium (15%)",
+                        12,
+                        "Square"
                     ],
                     [
                         "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
                         "https://store.steampowered.com",
                         "URL",
-                        768,  # Image size
-                        6,    # Border
-                        "High (30%)",  # Error correction
-                        16,   # Module size
-                        "Square",
-                        True,  # use_custom_seed
-                        718313  # seed
+                        512,
+                        4,
+                        "Medium (15%)",
+                        12,
+                        "Square"
                     ],
                     [
                         "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
                         "https://github.com",
                         "URL",
-                        704,  # Image size (default)
-                        6,    # Border
-                        "High (30%)",  # Error correction
-                        16,   # Module size
-                        "Square",
-                        True,  # use_custom_seed
-                        718313  # seed
+                        512,
+                        4,
+                        "Medium (15%)",
+                        12,
+                        "Square"
                     ],
                     [
                         "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
                         "https://twitter.com",
                         "URL",
-                        704,  # Image size (default)
-                        6,    # Border
-                        "High (30%)",  # Error correction
-                        16,   # Module size
-                        "Square",
-                        True,  # use_custom_seed
-                        718313  # seed
+                        512,
+                        4,
+                        "Medium (15%)",
+                        12,
+                        "Square"
                     ],
                     [
                         "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
                         "https://linkedin.com",
                         "URL",
-                        704,  # Image size (default)
-                        6,    # Border
-                        "High (30%)",  # Error correction
-                        16,   # Module size
-                        "Square",
-                        True,  # use_custom_seed
-                        718313  # seed
+                        512,
+                        4,
+                        "Medium (15%)",
+                        12,
+                        "Square"
                     ],
                     [
                         "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
                         "https://instagram.com",
                         "URL",
-                        704,  # Image size (default)
-                        6,    # Border
-                        "High (30%)",  # Error correction
-                        16,   # Module size
-                        "Square",
-                        True,  # use_custom_seed
-                        718313  # seed
+                        512,
+                        4,
+                        "Medium (15%)",
+                        12,
+                        "Square"
                     ],
                     [
                         "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
@@ -1879,60 +1745,53 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                         "Square"
                     ],
                     [
-                        "aerial bird view of ancient Roman city, cobblestone streets and pathways forming intricate patterns, vintage illustration style, sepia tones, aged parchment look, detailed architecture, 8k, ultra detailed",
+                        "wifi network symbol, modern tech, digital art, glowing blue, detailed, 8k, ultra detailed",
                         "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
                         "Plain Text",
-                        832,  # Image size
-                        6,    # Border
-                        "High (30%)",  # Error correction
-                        16,   # Module size
-                        "Square",
-                        True,  # use_custom_seed
-                        718313  # seed
+                        576,
+                        4,
+                        "Medium (15%)",
+                        12,
+                        "Square"
                     ],
                     [
-                        "ancient stone sundial in Mediterranean garden, olive trees, dappled sunlight through leaves, weathered stone texture, peaceful afternoon scene, photorealistic, detailed, 8k, ultra detailed",
+                        "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
                         "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
                         "Plain Text",
-                        1024,  # Image size
-                        6,     # Border
-                        "High (30%)",  # Error correction
-                        14,    # Module size
-                        "Square",
-                        True,  # use_custom_seed
-                        413468  # seed (custom for meeting)
+                        832,
+                        4,
+                        "Medium (15%)",
+                        12,
+                        "Square"
                     ],
                     [
-                        "aerial view of terraced rice fields on mountainside, winding pathways between green paddies, Asian countryside, bird's eye perspective, detailed landscape, golden hour lighting, photorealistic, 8k, ultra detailed",
+                        "location pin on map, travel destination, scenic view, detailed cartography, 8k, ultra detailed",
                         "geo:37.7749,-122.4194",
                         "Plain Text",
-                        704,  # Image size (default)
-                        6,    # Border
-                        "High (30%)",  # Error correction
-                        16,   # Module size
-                        "Square",
-                        True,  # use_custom_seed
-                        962359  # seed (custom for location)
+                        512,
+                        4,
+                        "Medium (15%)",
+                        12,
+                        "Square"
                     ]
                 ]
 
                 gr.Examples(
-                    examples=artistic_examples,
+                    examples=examples,
                     inputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed
+                        prompt_input,
+                        text_input,
+                        input_type,
+                        image_size,
+                        border_size,
+                        error_correction,
+                        module_size,
+                        module_drawer
                     ],
-                    outputs=[artistic_output_image, artistic_error_message],
-                    fn=generate_artistic_qr,
+                    outputs=[output_image, error_message],
+                    fn=generate_standard_qr,
                     cache_examples=False
                 )
 
+            # ARTISTIC QR TAB
     app.launch(share=False, mcp_server=True)
