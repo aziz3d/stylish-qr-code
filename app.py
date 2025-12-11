@@ -1689,6 +1689,111 @@ if __name__ == "__main__" and not os.environ.get('QR_TESTING_MODE'):
                     outputs=[artistic_seed]
                 )
 
+                # Custom Examples Gallery with Images
+                gr.Markdown("### Featured Examples")
+                gr.Markdown("Click 'Load Settings' under any example to populate the form with those exact settings")
+
+                # First row (3 images)
+                with gr.Row():
+                    # Example 1: Japanese Temple
+                    with gr.Column(scale=1):
+                        ex1_img = gr.Image("examples/artistic/japanese_temple.jpg", label="Japanese Temple", show_label=True, interactive=False, show_download_button=False, height=280)
+                        ex1_btn = gr.Button("Load Settings", size="sm", variant="secondary")
+
+                    # Example 2: Sunset Mountains
+                    with gr.Column(scale=1):
+                        ex2_img = gr.Image("examples/artistic/sunset_mountains.jpg", label="Sunset Mountains", show_label=True, interactive=False, show_download_button=False, height=280)
+                        ex2_btn = gr.Button("Load Settings", size="sm", variant="secondary")
+
+                    # Example 3: Roman City
+                    with gr.Column(scale=1):
+                        ex3_img = gr.Image("examples/artistic/roman_city.jpg", label="Roman City", show_label=True, interactive=False, show_download_button=False, height=280)
+                        ex3_btn = gr.Button("Load Settings", size="sm", variant="secondary")
+
+                # Second row (3 images)
+                with gr.Row():
+                    # Example 4: Neapolitan Pizza
+                    with gr.Column(scale=1):
+                        ex4_img = gr.Image("examples/artistic/neapolitan_pizza.webp", label="Neapolitan Pizza", show_label=True, interactive=False, show_download_button=False, height=280)
+                        ex4_btn = gr.Button("Load Settings", size="sm", variant="secondary")
+
+                    # Example 5: Poker Chips
+                    with gr.Column(scale=1):
+                        ex5_img = gr.Image("examples/artistic/poker_chips.webp", label="Poker Chips", show_label=True, interactive=False, show_download_button=False, height=280)
+                        ex5_btn = gr.Button("Load Settings", size="sm", variant="secondary")
+
+                    # Example 6: Underwater Fish
+                    with gr.Column(scale=1):
+                        ex6_img = gr.Image("examples/artistic/underwater_fish.webp", label="Underwater Fish", show_label=True, interactive=False, show_download_button=False, height=280)
+                        ex6_btn = gr.Button("Load Settings", size="sm", variant="secondary")
+
+                # Third row (3 images)
+                with gr.Row():
+                    # Example 7: Mediterranean Garden
+                    with gr.Column(scale=1):
+                        ex7_img = gr.Image("examples/artistic/mediterranean_garden.jpg", label="Mediterranean Garden", show_label=True, interactive=False, show_download_button=False, height=280)
+                        ex7_btn = gr.Button("Load Settings", size="sm", variant="secondary")
+
+                    # Example 8: Rice Fields
+                    with gr.Column(scale=1):
+                        ex8_img = gr.Image("examples/artistic/rice_fields.jpg", label="Rice Fields", show_label=True, interactive=False, show_download_button=False, height=280)
+                        ex8_btn = gr.Button("Load Settings", size="sm", variant="secondary")
+
+                    # Example 9: Cyberpunk City
+                    with gr.Column(scale=1):
+                        ex9_img = gr.Image("examples/artistic/cyberpunk_city.webp", label="Cyberpunk City", show_label=True, interactive=False, show_download_button=False, height=280)
+                        ex9_btn = gr.Button("Load Settings", size="sm", variant="secondary")
+
+                # Load settings button handlers
+                # Ex1: Japanese Temple
+                ex1_btn.click(
+                    fn=lambda: ("some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail", "https://www.google.com", "URL", 640, 6, "Medium (15%)", 14, "Square", True, 718313, 0.5),
+                    outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
+                )
+                # Ex2: Sunset Mountains
+                ex2_btn.click(
+                    fn=lambda: ("a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed", "https://github.com", "URL", 704, 6, "High (30%)", 16, "Square", True, 718313, 0.5),
+                    outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
+                )
+                # Ex3: Roman City
+                ex3_btn.click(
+                    fn=lambda: ("aerial bird view of ancient Roman city, cobblestone streets and pathways forming intricate patterns, vintage illustration style, sepia tones, aged parchment look, detailed architecture, 8k, ultra detailed", "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;", "Plain Text", 832, 6, "High (30%)", 16, "Square", True, 718313, 0.5),
+                    outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
+                )
+                # Ex4: Neapolitan Pizza
+                ex4_btn.click(
+                    fn=lambda: ("artisan Neapolitan pizza on rustic wooden board, fresh basil leaves scattered on top and around, oregano sprinkled, flour dust particles floating in air, melted mozzarella with char marks, traditional Italian pizzeria ambiance, warm brick oven glow in background, detailed food photography, photorealistic, 8k, ultra detailed", "https://www.pizzamaking.com", "URL", 704, 6, "High (30%)", 16, "Square", True, 856749, 2.0),
+                    outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
+                )
+                # Ex5: Poker Chips
+                ex5_btn.click(
+                    fn=lambda: ("some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail", "https://store.steampowered.com", "URL", 768, 6, "High (30%)", 16, "Square", True, 718313, 2.5),
+                    outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
+                )
+                # Ex6: Underwater Fish
+                ex6_btn.click(
+                    fn=lambda: ("underwater scene with tropical fish, coral reef, rays of sunlight penetrating water, vibrant colors, detailed marine life, photorealistic, 8k, ultra detailed", "https://www.reddit.com", "URL", 704, 6, "High (30%)", 16, "Square", True, 718313, 0.5),
+                    outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
+                )
+                # Ex7: Mediterranean Garden
+                ex7_btn.click(
+                    fn=lambda: ("ancient stone sundial in Mediterranean garden, olive trees, dappled sunlight through leaves, weathered stone texture, peaceful afternoon scene, photorealistic, detailed, 8k, ultra detailed", "BEGIN:VEVENT\\nSUMMARY:Team Meeting\\nDTSTART:20251115T140000Z\\nDTEND:20251115T150000Z\\nLOCATION:Conference Room A\\nEND:VEVENT", "Plain Text", 1024, 6, "High (30%)", 14, "Square", True, 413468, 0.5),
+                    outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
+                )
+                # Ex8: Rice Fields
+                ex8_btn.click(
+                    fn=lambda: ("aerial view of terraced rice fields on mountainside, winding pathways between green paddies, Asian countryside, bird's eye perspective, detailed landscape, golden hour lighting, photorealistic, 8k, ultra detailed", "geo:37.7749,-122.4194", "Plain Text", 704, 6, "High (30%)", 16, "Square", True, 962359, 0.5),
+                    outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
+                )
+                # Ex9: Cyberpunk City
+                ex9_btn.click(
+                    fn=lambda: ("futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed", "https://linkedin.com", "URL", 704, 6, "High (30%)", 16, "Square", True, 718313, 1.5),
+                    outputs=[artistic_prompt_input, artistic_text_input, artistic_input_type, artistic_image_size, artistic_border_size, artistic_error_correction, artistic_module_size, artistic_module_drawer, artistic_use_custom_seed, artistic_seed, sag_blur_sigma]
+                )
+
+                gr.Markdown("---")
+                gr.Markdown("### All Examples (Text-based)")
+
                 # Add examples for artistic QR
                 artistic_examples = [
                     [
