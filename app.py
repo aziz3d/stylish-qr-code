@@ -382,11 +382,19 @@ def _apply_torch_compile_optimizations():
         print("   Continuing without compilation (slower but functional)\n")
 
 
-# Only apply torch.compile on CUDA (not on MPS for local testing)
+# DISABLED: torch.compile causes graph breaks in ComfyUI timestep_embedding
+# Error: "Cannot construct `ConstantVariable` for value of type <class 'torch.device'>"
+# This is a known PyTorch limitation - torch.compile can't handle torch.device in graph
+# Uncomment when PyTorch/ComfyUI fixes ConstantVariable handling for torch.device
+#
+# if torch.cuda.is_available():
+#     _apply_torch_compile_optimizations()
+# else:
+#     print("ℹ️  Skipping torch.compile (not on CUDA)")
+
 if torch.cuda.is_available():
-    _apply_torch_compile_optimizations()
-else:
-    print("ℹ️  Skipping torch.compile (not on CUDA)")
+    print("ℹ️  torch.compile disabled (compatibility issues with ComfyUI)")
+    print("   App uses bfloat16 + VAE tiling + cache clearing for optimization")
 
 
 @spaces.GPU(duration=30)
