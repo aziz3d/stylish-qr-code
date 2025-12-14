@@ -1464,7 +1464,7 @@ def _pipeline_artistic(
 
 if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
     # Start your Gradio app
-    with gr.Blocks() as app:
+    with gr.Blocks(delete_cache=(3600, 3600)) as app:
         # Add a title and description
         gr.Markdown("# QR Code Art Generator")
         gr.Markdown("""
@@ -2707,6 +2707,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                 )
 
             # ARTISTIC QR TAB
+    app.queue()
     app.launch(share=False, mcp_server=True)
     # Note: Automatic file cleanup via delete_cache not available in Gradio 5.49.1
     # Files will be cleaned up when the server is restarted
