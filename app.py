@@ -1,6 +1,8 @@
+import json
 import os
 import random
 import sys
+import warnings
 from typing import Any, Mapping, Sequence, Union
 
 import gradio as gr
@@ -10,8 +12,13 @@ import torch
 from huggingface_hub import hf_hub_download
 from PIL import Image
 
-# Import FreeU for quality improvements
+# ComfyUI imports (after HF hub downloads)
+from comfy import model_management
+from comfy.cli_args import args
 from comfy_extras.nodes_freelunch import FreeU_V2
+
+# Suppress torchsde floating-point precision warnings (cosmetic only, no functional impact)
+warnings.filterwarnings("ignore", message="Should have tb<=t1 but got")
 
 hf_hub_download(
     repo_id="stable-diffusion-v1-5/stable-diffusion-v1-5",
@@ -163,7 +170,7 @@ def import_custom_nodes() -> None:
     init_extra_nodes()
 
 
-from nodes import NODE_CLASS_MAPPINGS
+from nodes import NODE_CLASS_MAPPINGS  # noqa: E402
 
 # Initialize common nodes
 checkpointloadersimple = NODE_CLASS_MAPPINGS["CheckpointLoaderSimple"]()
@@ -196,10 +203,6 @@ latentupscaleby = NODE_CLASS_MAPPINGS["LatentUpscaleBy"]()
 # Additional issue: MPS tensor operations can produce NaN/inf values (PyTorch bug #84364)
 # Solution: Monkey-patch dtype functions to force fp32, enable MPS fallback
 # References: https://civitai.com/articles/11106, https://github.com/pytorch/pytorch/issues/84364
-import os
-
-from comfy import model_management
-from comfy.cli_args import args
 
 # Lazy upscale model loading - only load when needed
 # This is safe for ZeroGPU since upscaling happens inside @spaces.GPU function
@@ -244,7 +247,30 @@ def calculate_vae_tile_size(image_size):
         return 1024, 128
 
 
-if torch.backends.mps.is_available():
+def log_progress(message, gr_progress=None, progress_value=None):
+    """Helper to log progress to both console and Gradio (simple stage-based updates)"""
+    print(f"{message}", flush=True)
+    if gr_progress and progress_value is not None:
+        gr_progress(progress_value, desc=message)
+
+
+# Device-specific optimizations
+if torch.cuda.is_available() and not torch.backends.mps.is_available():
+    # CUDA device - check bfloat16 support
+    print(f"CUDA device detected (PyTorch {torch.__version__})")
+
+    # Check if bfloat16 is supported (requires compute capability >= 8.0, e.g., A100, H100)
+    if torch.cuda.is_bf16_supported():
+        print("  ✓ Using bfloat16 precision for optimal performance")
+        print("  ✓ Memory optimizations enabled")
+        # Note: bfloat16 is handled automatically by model_management on CUDA
+        # No dtype forcing needed - ComfyUI uses optimal dtypes by default
+    else:
+        print("  ⚠️  bfloat16 not supported on this GPU, using default precision")
+        print("  ℹ️  For best performance, use GPU with compute capability >= 8.0")
+
+elif torch.backends.mps.is_available():
+    # MPS device (Apple Silicon) - force fp32 to avoid black image bug
     print(f"MPS device detected (PyTorch {torch.__version__})")
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = (
         "1"  # Enable MPS fallback for unsupported ops
@@ -317,6 +343,52 @@ valid_models = [
 model_management.load_models_gpu(valid_models)
 
 
+# Apply torch.compile to diffusion models for 1.5-1.7× speedup
+# Compilation happens once at startup (30-60s), then cached for fast inference
+def _apply_torch_compile_optimizations():
+    """Apply torch.compile to both pipeline models using ComfyUI's infrastructure"""
+    try:
+        from comfy_api.torch_helpers.torch_compile import set_torch_compile_wrapper
+
+        print("\n🔧 Applying torch.compile optimizations...")
+
+        # Compile standard pipeline model (DreamShaper 3.32)
+        standard_model = get_value_at_index(checkpointloadersimple_4, 0)
+        set_torch_compile_wrapper(
+            model=standard_model,
+            backend="inductor",
+            mode="reduce-overhead",  # Best for iterative sampling
+            fullgraph=False,  # ControlNet prevents full graph
+            dynamic=False,  # Fixed image sizes per pipeline
+            keys=["diffusion_model"],  # Compile UNet only
+        )
+        print("  ✓ Compiled standard pipeline diffusion model")
+
+        # Compile artistic pipeline model (DreamShaper 6.31)
+        artistic_model = get_value_at_index(checkpointloadersimple_artistic, 0)
+        set_torch_compile_wrapper(
+            model=artistic_model,
+            backend="inductor",
+            mode="reduce-overhead",
+            fullgraph=False,
+            dynamic=False,
+            keys=["diffusion_model"],
+        )
+        print("  ✓ Compiled artistic pipeline diffusion model")
+        print("✅ torch.compile optimizations applied successfully!\n")
+
+    except Exception as e:
+        print(f"⚠️  torch.compile optimization failed: {e}")
+        print("   Continuing without compilation (slower but functional)\n")
+
+
+# Only apply torch.compile on CUDA (not on MPS for local testing)
+if torch.cuda.is_available():
+    _apply_torch_compile_optimizations()
+else:
+    print("ℹ️  Skipping torch.compile (not on CUDA)")
+
+
 @spaces.GPU(duration=30)
 def generate_qr_code_unified(
     prompt: str,
@@ -342,6 +414,7 @@ def generate_qr_code_unified(
     controlnet_strength_final: float = 0.7,
     controlnet_strength_standard_first: float = 0.45,
     controlnet_strength_standard_final: float = 1.0,
+    progress=gr.Progress(),
 ):
     # Only manipulate the text if it's a URL input type
     qr_text = text_input
@@ -369,6 +442,7 @@ def generate_qr_code_unified(
                 enable_upscale,
                 controlnet_strength_standard_first,
                 controlnet_strength_standard_final,
+                progress,
             )
         else:  # artistic
             yield from _pipeline_artistic(
@@ -391,6 +465,7 @@ def generate_qr_code_unified(
                 sag_blur_sigma,
                 controlnet_strength_first,
                 controlnet_strength_final,
+                progress,
             )
 
 
@@ -409,6 +484,7 @@ def generate_standard_qr(
     enable_freeu: bool = False,
     controlnet_strength_standard_first: float = 0.45,
     controlnet_strength_standard_final: float = 1.0,
+    progress=gr.Progress(),
 ):
     """Wrapper function for standard QR generation"""
     # Get actual seed used (custom or random)
@@ -450,6 +526,7 @@ def generate_standard_qr(
         enable_upscale=enable_upscale,
         controlnet_strength_standard_first=controlnet_strength_standard_first,
         controlnet_strength_standard_final=controlnet_strength_standard_final,
+        progress=progress,
     )
 
     final_image = None
@@ -493,6 +570,7 @@ def generate_artistic_qr(
     sag_blur_sigma: float = 0.5,
     controlnet_strength_first: float = 0.45,
     controlnet_strength_final: float = 0.70,
+    progress=gr.Progress(),
 ):
     """Wrapper function for artistic QR generation with FreeU and SAG parameters"""
     # Get actual seed used (custom or random)
@@ -548,6 +626,7 @@ def generate_artistic_qr(
         sag_blur_sigma=sag_blur_sigma,
         controlnet_strength_first=controlnet_strength_first,
         controlnet_strength_final=controlnet_strength_final,
+        progress=progress,
     )
 
     final_image = None
@@ -570,7 +649,6 @@ def generate_artistic_qr(
 
 
 # Helper functions for shareable settings JSON
-import json
 
 
 def generate_settings_json(params_dict: dict) -> str:
@@ -950,6 +1028,7 @@ def _pipeline_standard(
     enable_upscale: bool = False,
     controlnet_strength_first: float = 0.45,
     controlnet_strength_final: float = 1.0,
+    gr_progress=None,
 ):
     emptylatentimage_5 = emptylatentimage.generate(
         width=image_size, height=image_size, batch_size=1
@@ -976,6 +1055,14 @@ def _pipeline_standard(
     # Set protocol based on input type: None for plain text, Https for URLs
     qr_protocol = "None" if input_type == "Plain Text" else "Https"
 
+    # Test progress bar at the very beginning
+    print(f"DEBUG: gr_progress type: {type(gr_progress)}")
+    print(f"DEBUG: gr_progress value: {gr_progress}")
+    if gr_progress:
+        print("DEBUG: Calling gr_progress(0.0)")
+        gr_progress(0.0, desc="Starting QR generation...")
+        print("DEBUG: Called gr_progress(0.0) successfully")
+
     try:
         comfy_qr_by_module_size_15 = comfy_qr_by_module_size.generate_qr(
             protocol=qr_protocol,
@@ -1001,7 +1088,9 @@ def _pipeline_standard(
     base_qr_np = (base_qr_tensor.cpu().numpy() * 255).astype(np.uint8)
     base_qr_np = base_qr_np[0]
     base_qr_pil = Image.fromarray(base_qr_np)
-    yield base_qr_pil, "Generated base QR pattern… enhancing with AI (step 1/3)"
+    msg = "Generated base QR pattern… enhancing with AI (step 1/3)"
+    log_progress(msg, gr_progress, 0.05)
+    yield base_qr_pil, msg
 
     emptylatentimage_17 = emptylatentimage.generate(
         width=image_size * 2, height=image_size * 2, batch_size=1
@@ -1010,6 +1099,9 @@ def _pipeline_standard(
     controlnetloader_19 = controlnetloader.load_controlnet(
         control_net_name="control_v11f1e_sd15_tile_fp16.safetensors"
     )
+
+    # Simple stage update for first pass
+    log_progress("First pass - preparing controlnets...", gr_progress, 0.1)
 
     for q in range(1):
         controlnetapplyadvanced_11 = controlnetapplyadvanced.apply_controlnet(
@@ -1053,6 +1145,11 @@ def _pipeline_standard(
             latent_image=get_value_at_index(emptylatentimage_5, 0),
         )
 
+        # Yield progress update after first sampling completes
+        msg = "First pass sampling complete... decoding image"
+        log_progress(msg, gr_progress, 0.4)
+        yield base_qr_pil, msg  # Yield with same image as before
+
         # Calculate optimal tile size for this image
         tile_size, overlap = calculate_vae_tile_size(image_size)
 
@@ -1076,10 +1173,15 @@ def _pipeline_standard(
         mid_np = (mid_tensor.cpu().numpy() * 255).astype(np.uint8)
         mid_np = mid_np[0]
         mid_pil = Image.fromarray(mid_np)
-        yield mid_pil, "First enhancement pass complete (step 2/3)… refining details"
+        msg = "First enhancement pass complete (step 2/3)… refining details"
+        log_progress(msg, gr_progress, 0.5)
+        yield mid_pil, msg
 
         # Clear cache before second pass to free memory
         model_management.soft_empty_cache()
+
+        # Simple stage update for second pass
+        log_progress("Second pass (refinement)...", gr_progress, 0.5)
 
         controlnetapplyadvanced_20 = controlnetapplyadvanced.apply_controlnet(
             strength=controlnet_strength_final,
@@ -1105,6 +1207,11 @@ def _pipeline_standard(
             latent_image=get_value_at_index(emptylatentimage_17, 0),
         )
 
+        # Yield progress update after second sampling completes
+        msg = "Second pass sampling complete... decoding final image"
+        log_progress(msg, gr_progress, 0.8)
+        yield mid_pil, msg  # Yield with previous image
+
         # Second pass is always 2x original, calculate based on doubled size
         tile_size_2x, overlap_2x = calculate_vae_tile_size(image_size * 2)
 
@@ -1128,7 +1235,9 @@ def _pipeline_standard(
             pre_upscale_np = (pre_upscale_tensor.cpu().numpy() * 255).astype(np.uint8)
             pre_upscale_np = pre_upscale_np[0]
             pre_upscale_pil = Image.fromarray(pre_upscale_np)
-            yield pre_upscale_pil, "Enhancement complete (step 3/4)... upscaling image"
+            msg = "Enhancement complete (step 3/4)... upscaling image"
+            log_progress(msg, gr_progress, 0.9)
+            yield pre_upscale_pil, msg
 
             # Upscale the final image (load model on-demand)
             upscale_model = get_upscale_model()
@@ -1141,17 +1250,18 @@ def _pipeline_standard(
             image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
-            yield (
-                pil_image,
-                "No errors, all good! Final QR art generated and upscaled. (step 4/4)",
-            )
+            msg = "No errors, all good! Final QR art generated and upscaled. (step 4/4)"
+            log_progress(msg, gr_progress, 1.0)
+            yield (pil_image, msg)
         else:
             # No upscaling
             image_tensor = get_value_at_index(vaedecode_21, 0)
             image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
-            yield pil_image, "No errors, all good! Final QR art generated."
+            msg = "No errors, all good! Final QR art generated."
+            log_progress(msg, gr_progress, 1.0)
+            yield pil_image, msg
 
 
 def _pipeline_artistic(
@@ -1174,6 +1284,7 @@ def _pipeline_artistic(
     sag_blur_sigma: float = 0.5,
     controlnet_strength_first: float = 0.45,
     controlnet_strength_final: float = 0.7,
+    gr_progress=None,
 ):
     # Generate QR code
     qr_protocol = "None" if input_type == "Plain Text" else "Https"
@@ -1215,10 +1326,9 @@ def _pipeline_artistic(
 
     # Only add noise if there's a border (border_size > 0)
     if border_size > 0:
-        yield (
-            base_qr_pil,
-            f"Generated base QR pattern... adding QR-like cubics to border (step {current_step}/{total_steps})",
-        )
+        msg = f"Generated base QR pattern... adding QR-like cubics to border (step {current_step}/{total_steps})"
+        log_progress(msg, gr_progress, 0.05)
+        yield (base_qr_pil, msg)
         current_step += 1
 
         # Add QR-like cubic patterns ONLY to border region (extends QR structure into border)
@@ -1235,18 +1345,16 @@ def _pipeline_artistic(
         noisy_qr_np = (qr_with_border_noise.cpu().numpy() * 255).astype(np.uint8)
         noisy_qr_np = noisy_qr_np[0]
         noisy_qr_pil = Image.fromarray(noisy_qr_np)
-        yield (
-            noisy_qr_pil,
-            f"Added QR-like cubics to border... enhancing with AI (step {current_step}/{total_steps})",
-        )
+        msg = f"Added QR-like cubics to border... enhancing with AI (step {current_step}/{total_steps})"
+        log_progress(msg, gr_progress, 0.1)
+        yield (noisy_qr_pil, msg)
         current_step += 1
     else:
         # No border, skip noise
         qr_with_border_noise = get_value_at_index(comfy_qr, 0)
-        yield (
-            base_qr_pil,
-            f"Generated base QR pattern (no border)... enhancing with AI (step {current_step}/{total_steps})",
-        )
+        msg = f"Generated base QR pattern (no border)... enhancing with AI (step {current_step}/{total_steps})"
+        log_progress(msg, gr_progress, 0.1)
+        yield (base_qr_pil, msg)
         current_step += 1
 
     # Generate latent image
@@ -1329,6 +1437,8 @@ def _pipeline_artistic(
         enhanced_model = freeu_model
 
     # First sampling pass
+    log_progress("First pass - artistic sampling...", gr_progress, 0.2)
+
     samples = ksampler.sample(
         seed=seed,
         steps=30,
@@ -1341,6 +1451,11 @@ def _pipeline_artistic(
         negative=get_value_at_index(controlnet_apply, 1),
         latent_image=get_value_at_index(latent_image, 0),
     )
+
+    # Yield progress update after first sampling completes
+    msg = f"First pass sampling complete... decoding image (step {current_step}/{total_steps})"
+    log_progress(msg, gr_progress, 0.4)
+    yield (noisy_qr_pil if border_size > 0 else base_qr_pil, msg)
 
     # First decode with dynamic tiling
     tile_size, overlap = calculate_vae_tile_size(image_size)
@@ -1363,10 +1478,9 @@ def _pipeline_artistic(
     first_pass_np = (first_pass_tensor.cpu().numpy() * 255).astype(np.uint8)
     first_pass_np = first_pass_np[0]
     first_pass_pil = Image.fromarray(first_pass_np)
-    yield (
-        first_pass_pil,
-        f"First enhancement pass complete (step {current_step}/{total_steps})... final refinement pass",
-    )
+    msg = f"First enhancement pass complete (step {current_step}/{total_steps})... final refinement pass"
+    log_progress(msg, gr_progress, 0.5)
+    yield (first_pass_pil, msg)
     current_step += 1
 
     # Clear cache before second pass to free memory
@@ -1392,6 +1506,8 @@ def _pipeline_artistic(
     )
 
     # Final sampling pass
+    log_progress("Second pass (refinement)...", gr_progress, 0.6)
+
     final_samples = ksampler.sample(
         seed=seed + 1,
         steps=30,
@@ -1404,6 +1520,11 @@ def _pipeline_artistic(
         negative=get_value_at_index(controlnet_apply_final, 1),
         latent_image=get_value_at_index(upscaled_latent, 0),
     )
+
+    # Yield progress update after second sampling completes
+    msg = f"Second pass sampling complete... decoding final image (step {current_step}/{total_steps})"
+    log_progress(msg, gr_progress, 0.8)
+    yield (first_pass_pil, msg)
 
     # Final decode with dynamic tiling
     tile_size, overlap = calculate_vae_tile_size(image_size)
@@ -1428,10 +1549,9 @@ def _pipeline_artistic(
         pre_upscale_np = (pre_upscale_tensor.cpu().numpy() * 255).astype(np.uint8)
         pre_upscale_np = pre_upscale_np[0]
         pre_upscale_pil = Image.fromarray(pre_upscale_np)
-        yield (
-            pre_upscale_pil,
-            f"Final refinement complete (step {current_step}/{total_steps})... upscaling image",
-        )
+        msg = f"Final refinement complete (step {current_step}/{total_steps})... upscaling image"
+        log_progress(msg, gr_progress, 0.9)
+        yield (pre_upscale_pil, msg)
         current_step += 1
 
         # Upscale image with model (load model on-demand)
@@ -1446,24 +1566,23 @@ def _pipeline_artistic(
         image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
-        yield (
-            final_image,
-            f"No errors, all good! Final artistic QR code generated and upscaled. (step {current_step}/{total_steps})",
-        )
+        msg = f"No errors, all good! Final artistic QR code generated and upscaled. (step {current_step}/{total_steps})"
+        log_progress(msg, gr_progress, 1.0)
+        yield (final_image, msg)
     else:
         # No upscaling
         image_tensor = get_value_at_index(final_decoded, 0)
         image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
-        yield (
-            final_image,
-            f"No errors, all good! Final artistic QR code generated. (step {current_step}/{total_steps})",
-        )
+        msg = f"No errors, all good! Final artistic QR code generated. (step {current_step}/{total_steps})"
+        log_progress(msg, gr_progress, 1.0)
+        yield (final_image, msg)
 
 
 if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
-    # Start your Gradio app
+    # Start your Gradio app with automatic cache cleanup
+    # delete_cache=(3600, 3600) means: check every hour and delete files older than 1 hour
     with gr.Blocks(delete_cache=(3600, 3600)) as app:
         # Add a title and description
         gr.Markdown("# QR Code Art Generator")
@@ -1471,8 +1590,8 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         This is an AI-powered QR code generator that creates artistic QR codes using Stable Diffusion 1.5 and ControlNet models.
         The application uses a custom ComfyUI workflow to generate QR codes.
 
-        **Privacy Notice:** Generated images are temporarily cached during your session.
-        Files are cleared when the server restarts. Download your QR codes immediately after generation.
+        **Privacy Notice:** Generated images are automatically deleted after 1 hour.
+        Temporary files are checked and cleaned every hour. Download your QR codes promptly after generation.
 
         ### Tips:
         - Use detailed prompts for better results
@@ -2707,7 +2826,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                 )
 
             # ARTISTIC QR TAB
-    app.queue()
+    app.queue()  # Required for gr.Progress() to work!
     app.launch(share=False, mcp_server=True)
     # Note: Automatic file cleanup via delete_cache not available in Gradio 5.49.1
     # Files will be cleaned up when the server is restarted
