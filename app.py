@@ -379,9 +379,14 @@ def _apply_torch_compile_optimizations():
         print("   Continuing without compilation (slower but functional)\n")
 
 
-# Enable torch.compile optimizations (timestep_embedding fixed!)
-# Now works with fullgraph=True: timestep_embedding uses device string + no progress hooks
-_apply_torch_compile_optimizations()
+# torch.compile DISABLED: Multiple device access issues in ComfyUI codebase
+# Issues found:
+# 1. comfy/ldm/modules/diffusionmodules/util.py - timestep_embedding (FIXED with .to())
+# 2. comfy_extras/nodes_freelunch.py:94 - hsp.device check in output_block_patch
+# With fullgraph=True, compilation traces too deep and hits these ConstantVariable errors
+# App still uses bfloat16 optimization for 1.3-1.5× speedup
+print("ℹ️  torch.compile disabled (ComfyUI device access incompatibilities)")
+print("   App uses bfloat16 + VAE tiling + cache clearing for optimization")
 
 
 @spaces.GPU(duration=60)
