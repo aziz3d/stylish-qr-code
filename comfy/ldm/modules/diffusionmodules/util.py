@@ -18,6 +18,7 @@ from einops import rearrange, repeat
 
 from comfy.ldm.util import instantiate_from_config
 
+
 class AlphaBlender(nn.Module):
     strategies = ["learned", "fixed", "learned_with_images"]
 
@@ -266,13 +267,12 @@ def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
     """
     if not repeat_only:
         half = dim // 2
-        # Extract device as a string to avoid ConstantVariable error in torch.compile
-        device_str = str(timesteps.device) if hasattr(timesteps, "device") else "cuda"
+        # Create on CPU then move to same device as timesteps (torch.compile compatible)
         freqs = torch.exp(
             -math.log(max_period)
-            * torch.arange(start=0, end=half, dtype=torch.float32, device=device_str)
+            * torch.arange(start=0, end=half, dtype=torch.float32)
             / half
-        )
+        ).to(timesteps)
         args = timesteps[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
@@ -338,7 +338,11 @@ def noise_like(shape, device, repeat=False):
     repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(
         shape[0], *((1,) * (len(shape) - 1))
     )
+
+
 def noise_like(shape, device, repeat=False):
-    repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(shape[0], *((1,) * (len(shape) - 1)))
+    repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(
+        shape[0], *((1,) * (len(shape) - 1))
+    )
     noise = lambda: torch.randn(shape, device=device)
     return repeat_noise() if repeat else noise()
