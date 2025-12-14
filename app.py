@@ -1150,23 +1150,14 @@ def _pipeline_standard(
         log_progress(msg, gr_progress, 0.4)
         yield base_qr_pil, msg  # Yield with same image as before
 
-        # Calculate optimal tile size for this image
-        tile_size, overlap = calculate_vae_tile_size(image_size)
+        # Calculate optimal tile size for this image - disable for now
+        # tile_size, overlap = calculate_vae_tile_size(image_size)
 
-        if tile_size is not None:
-            # Use tiled decode for larger images
-            vaedecode_8 = vaedecodetiled.decode(
-                samples=get_value_at_index(ksampler_3, 0),
-                vae=get_value_at_index(checkpointloadersimple_4, 2),
-                tile_size=tile_size,
-                overlap=overlap,
-            )
-        else:
-            # Small image, use standard decode (faster)
-            vaedecode_8 = vaedecode.decode(
-                samples=get_value_at_index(ksampler_3, 0),
-                vae=get_value_at_index(checkpointloadersimple_4, 2),
-            )
+        # Small image, use standard decode (faster)
+        vaedecode_8 = vaedecode.decode(
+            samples=get_value_at_index(ksampler_3, 0),
+            vae=get_value_at_index(checkpointloadersimple_4, 2),
+        )
 
         # 2) Yield the first decoded image as a second intermediate result
         mid_tensor = get_value_at_index(vaedecode_8, 0)
@@ -1457,21 +1448,13 @@ def _pipeline_artistic(
     log_progress(msg, gr_progress, 0.4)
     yield (noisy_qr_pil if border_size > 0 else base_qr_pil, msg)
 
-    # First decode with dynamic tiling
-    tile_size, overlap = calculate_vae_tile_size(image_size)
+    # First decode with dynamic tiling - disable for now
+    # tile_size, overlap = calculate_vae_tile_size(image_size)
 
-    if tile_size is not None:
-        decoded = vaedecodetiled.decode(
-            samples=get_value_at_index(samples, 0),
-            vae=get_value_at_index(checkpointloadersimple_artistic, 2),
-            tile_size=tile_size,
-            overlap=overlap,
-        )
-    else:
-        decoded = vaedecode.decode(
-            samples=get_value_at_index(samples, 0),
-            vae=get_value_at_index(checkpointloadersimple_artistic, 2),
-        )
+    decoded = vaedecode.decode(
+        samples=get_value_at_index(samples, 0),
+        vae=get_value_at_index(checkpointloadersimple_artistic, 2),
+    )
 
     # Show first pass result
     first_pass_tensor = get_value_at_index(decoded, 0)
