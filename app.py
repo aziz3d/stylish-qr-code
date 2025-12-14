@@ -255,21 +255,10 @@ def log_progress(message, gr_progress=None, progress_value=None):
 
 
 # Device-specific optimizations
-if torch.cuda.is_available() and not torch.backends.mps.is_available():
-    # CUDA device - check bfloat16 support
-    print(f"CUDA device detected (PyTorch {torch.__version__})")
-
-    # Check if bfloat16 is supported (requires compute capability >= 8.0, e.g., A100, H100)
-    if torch.cuda.is_bf16_supported():
-        print("  ✓ Using bfloat16 precision for optimal performance")
-        print("  ✓ Memory optimizations enabled")
-        # Note: bfloat16 is handled automatically by model_management on CUDA
-        # No dtype forcing needed - ComfyUI uses optimal dtypes by default
-    else:
-        print("  ⚠️  bfloat16 not supported on this GPU, using default precision")
-        print("  ℹ️  For best performance, use GPU with compute capability >= 8.0")
-
-elif torch.backends.mps.is_available():
+# Note: On ZeroGPU, torch.cuda.is_available() is False at module load time
+# CUDA only becomes available inside @spaces.GPU decorated functions
+# So we only check for MPS (local development) and apply those workarounds
+if torch.backends.mps.is_available():
     # MPS device (Apple Silicon) - force fp32 to avoid black image bug
     print(f"MPS device detected (PyTorch {torch.__version__})")
     os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = (
@@ -328,6 +317,11 @@ elif torch.backends.mps.is_available():
     print("  ✓ Enabled global fp32 dtype enforcement (monkey-patched)")
     print("  ✓ Enabled MPS fallback mode")
     print(f"  ✓ lowvram: {lowvram_status}, split-cross-attention: {split_attn_status}")
+else:
+    # Not MPS - likely ZeroGPU or other CUDA environment
+    # CUDA optimizations (bfloat16) are handled automatically by ComfyUI's model_management
+    print(f"PyTorch {torch.__version__} loaded")
+    print("  ℹ️  CUDA optimizations will be applied when GPU becomes available")
 
 # Add all the models that load a safetensors file
 model_loaders = [checkpointloadersimple_4, checkpointloadersimple_artistic]
@@ -340,7 +334,10 @@ valid_models = [
     and not isinstance(getattr(loader[0], "patcher", None), dict)
 ]
 
-model_management.load_models_gpu(valid_models)
+# Note: Commenting out pre-loading to GPU for ZeroGPU compatibility
+# On ZeroGPU, CUDA is not available until inside @spaces.GPU decorator
+# Models will be automatically loaded to GPU when first used
+# model_management.load_models_gpu(valid_models)
 
 
 # Apply torch.compile to diffusion models for 1.5-1.7× speedup
@@ -387,14 +384,10 @@ def _apply_torch_compile_optimizations():
 # This is a known PyTorch limitation - torch.compile can't handle torch.device in graph
 # Uncomment when PyTorch/ComfyUI fixes ConstantVariable handling for torch.device
 #
-# if torch.cuda.is_available():
-#     _apply_torch_compile_optimizations()
-# else:
-#     print("ℹ️  Skipping torch.compile (not on CUDA)")
-
-if torch.cuda.is_available():
-    print("ℹ️  torch.compile disabled (compatibility issues with ComfyUI)")
-    print("   App uses bfloat16 + VAE tiling + cache clearing for optimization")
+# Note: Can't check torch.cuda.is_available() here on ZeroGPU (CUDA not yet initialized)
+# torch.compile would need to be applied inside @spaces.GPU decorator
+print("ℹ️  torch.compile disabled (compatibility issues with ComfyUI)")
+print("   App uses bfloat16 + VAE tiling + cache clearing for optimization")
 
 
 @spaces.GPU(duration=30)
