@@ -355,8 +355,8 @@ def _apply_torch_compile_optimizations():
             model=standard_model,
             backend="inductor",
             mode="reduce-overhead",  # Best for iterative sampling
-            fullgraph=False,  # ControlNet prevents full graph
-            dynamic=False,  # Fixed image sizes per pipeline
+            fullgraph=True,  # Now possible: timestep_embedding fixed + no progress hooks
+            dynamic=True,  # Support all sizes (512-1024, step 64) with one kernel
             keys=["diffusion_model"],  # Compile UNet only
         )
         print("  ✓ Compiled standard pipeline diffusion model")
@@ -367,8 +367,8 @@ def _apply_torch_compile_optimizations():
             model=artistic_model,
             backend="inductor",
             mode="reduce-overhead",
-            fullgraph=False,
-            dynamic=False,
+            fullgraph=True,  # Now possible: timestep_embedding fixed + no progress hooks
+            dynamic=True,  # Support all sizes (512-1024, step 64) with one kernel
             keys=["diffusion_model"],
         )
         print("  ✓ Compiled artistic pipeline diffusion model")
@@ -379,18 +379,12 @@ def _apply_torch_compile_optimizations():
         print("   Continuing without compilation (slower but functional)\n")
 
 
-# DISABLED: torch.compile causes graph breaks in ComfyUI timestep_embedding
-# Error: "Cannot construct `ConstantVariable` for value of type <class 'torch.device'>"
-# This is a known PyTorch limitation - torch.compile can't handle torch.device in graph
-# Uncomment when PyTorch/ComfyUI fixes ConstantVariable handling for torch.device
-#
-# Note: Can't check torch.cuda.is_available() here on ZeroGPU (CUDA not yet initialized)
-# torch.compile would need to be applied inside @spaces.GPU decorator
-print("ℹ️  torch.compile disabled (compatibility issues with ComfyUI)")
-print("   App uses bfloat16 + VAE tiling + cache clearing for optimization")
+# Enable torch.compile optimizations (timestep_embedding fixed!)
+# Now works with fullgraph=True: timestep_embedding uses device string + no progress hooks
+_apply_torch_compile_optimizations()
 
 
-@spaces.GPU(duration=30)
+@spaces.GPU(duration=60)
 def generate_qr_code_unified(
     prompt: str,
     text_input: str,
