@@ -45,12 +45,14 @@ class FreeU:
             scale = scale_dict.get(int(h.shape[1]), None)
             if scale is not None:
                 h[:,:h.shape[1] // 2] = h[:,:h.shape[1] // 2] * scale[0]
-                if hsp.device not in on_cpu_devices:
+                # Convert device to string for torch.compile compatibility
+                device_str = str(hsp.device)
+                if device_str not in on_cpu_devices:
                     try:
                         hsp = Fourier_filter(hsp, threshold=1, scale=scale[1])
                     except:
-                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(hsp.device))
-                        on_cpu_devices[hsp.device] = True
+                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(device_str))
+                        on_cpu_devices[device_str] = True
                         hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
                 else:
                     hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
@@ -91,12 +93,14 @@ class FreeU_V2:
 
                 h[:,:h.shape[1] // 2] = h[:,:h.shape[1] // 2] * ((scale[0] - 1 ) * hidden_mean + 1)
 
-                if hsp.device not in on_cpu_devices:
+                # Convert device to string for torch.compile compatibility
+                device_str = str(hsp.device)
+                if device_str not in on_cpu_devices:
                     try:
                         hsp = Fourier_filter(hsp, threshold=1, scale=scale[1])
                     except:
-                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(hsp.device))
-                        on_cpu_devices[hsp.device] = True
+                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(device_str))
+                        on_cpu_devices[device_str] = True
                         hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
                 else:
                     hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
