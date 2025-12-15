@@ -41,18 +41,18 @@ class FreeU:
         scale_dict = {model_channels * 4: (b1, s1), model_channels * 2: (b2, s2)}
         on_cpu_devices = {}
 
+        # Disable torch.compile for this function to avoid device access issues
+        @torch.compiler.disable
         def output_block_patch(h, hsp, transformer_options):
             scale = scale_dict.get(int(h.shape[1]), None)
             if scale is not None:
                 h[:,:h.shape[1] // 2] = h[:,:h.shape[1] // 2] * scale[0]
-                # Convert device to string for torch.compile compatibility
-                device_str = str(hsp.device)
-                if device_str not in on_cpu_devices:
+                if hsp.device not in on_cpu_devices:
                     try:
                         hsp = Fourier_filter(hsp, threshold=1, scale=scale[1])
                     except:
-                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(device_str))
-                        on_cpu_devices[device_str] = True
+                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(hsp.device))
+                        on_cpu_devices[hsp.device] = True
                         hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
                 else:
                     hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
@@ -82,6 +82,8 @@ class FreeU_V2:
         scale_dict = {model_channels * 4: (b1, s1), model_channels * 2: (b2, s2)}
         on_cpu_devices = {}
 
+        # Disable torch.compile for this function to avoid device access issues
+        @torch.compiler.disable
         def output_block_patch(h, hsp, transformer_options):
             scale = scale_dict.get(int(h.shape[1]), None)
             if scale is not None:
@@ -93,14 +95,12 @@ class FreeU_V2:
 
                 h[:,:h.shape[1] // 2] = h[:,:h.shape[1] // 2] * ((scale[0] - 1 ) * hidden_mean + 1)
 
-                # Convert device to string for torch.compile compatibility
-                device_str = str(hsp.device)
-                if device_str not in on_cpu_devices:
+                if hsp.device not in on_cpu_devices:
                     try:
                         hsp = Fourier_filter(hsp, threshold=1, scale=scale[1])
                     except:
-                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(device_str))
-                        on_cpu_devices[device_str] = True
+                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(hsp.device))
+                        on_cpu_devices[hsp.device] = True
                         hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
                 else:
                     hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
