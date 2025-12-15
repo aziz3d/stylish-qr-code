@@ -1,5 +1,16 @@
-import json
 import os
+import tarfile
+
+# Extract pre-compiled Triton kernels if they exist
+if os.path.exists("triton_cache.tar.gz") and not os.path.exists(
+    os.path.expanduser("~/.triton/cache")
+):
+    print("📦 Extracting pre-compiled Triton kernels...")
+    with tarfile.open("triton_cache.tar.gz", "r:gz") as tar:
+        tar.extractall(path=os.path.expanduser("~"))
+    print("✅ Triton kernels ready!")
+
+import json
 import random
 import sys
 import warnings
@@ -355,8 +366,8 @@ def _apply_torch_compile_optimizations():
             model=standard_model,
             backend="inductor",
             mode="reduce-overhead",  # Best for iterative sampling
-            fullgraph=True,  # Now possible: timestep_embedding fixed + no progress hooks
-            dynamic=True,  # Support all sizes (512-1024, step 64) with one kernel
+            fullgraph=False,  # Allow SAG to capture attention maps
+            dynamic=False,  # Support all sizes (512-1024, step 64) with one kernel
             keys=["diffusion_model"],  # Compile UNet only
         )
         print("  ✓ Compiled standard pipeline diffusion model")
@@ -367,8 +378,8 @@ def _apply_torch_compile_optimizations():
             model=artistic_model,
             backend="inductor",
             mode="reduce-overhead",
-            fullgraph=True,  # Now possible: timestep_embedding fixed + no progress hooks
-            dynamic=True,  # Support all sizes (512-1024, step 64) with one kernel
+            fullgraph=False,  # Allow SAG to capture attention maps
+            dynamic=False,  # Support all sizes (512-1024, step 64) with one kernel
             keys=["diffusion_model"],
         )
         print("  ✓ Compiled artistic pipeline diffusion model")
@@ -379,14 +390,15 @@ def _apply_torch_compile_optimizations():
         print("   Continuing without compilation (slower but functional)\n")
 
 
-# torch.compile DISABLED: Multiple device access issues in ComfyUI codebase
-# Issues found:
-# 1. comfy/ldm/modules/diffusionmodules/util.py - timestep_embedding (FIXED with .to())
-# 2. comfy_extras/nodes_freelunch.py:94 - hsp.device check in output_block_patch
-# With fullgraph=True, compilation traces too deep and hits these ConstantVariable errors
-# App still uses bfloat16 optimization for 1.3-1.5× speedup
-print("ℹ️  torch.compile disabled (ComfyUI device access incompatibilities)")
-print("   App uses bfloat16 + VAE tiling + cache clearing for optimization")
+# Enable torch.compile optimizations (timestep_embedding fixed!)
+# Now works with fullgraph=False for compatibility with SAG
+# Skip on MPS (MacBooks) - torch.compile with MPS can cause issues
+if not torch.backends.mps.is_available():
+    _apply_torch_compile_optimizations()
+else:
+    print(
+        "ℹ️  torch.compile skipped on MPS (MacBook) - using fp32 optimizations instead"
+    )
 
 
 @spaces.GPU(duration=60)
