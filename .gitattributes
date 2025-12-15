@@ -70,3 +70,4 @@ custom_nodes/comfyui_controlnet_aux/src/custom_controlnet_aux/mesh_graphormer/ha
 custom_nodes/comfyui_controlnet_aux/src/custom_controlnet_aux/tests/test_image.png filter=lfs diff=lfs merge=lfs -text
 custom_nodes/comfyui_controlnet_aux/tests/pose.png filter=lfs diff=lfs merge=lfs -text
 showcase.mp4 filter=lfs diff=lfs merge=lfs -text
+*.tar.gz filter=lfs diff=lfs merge=lfs -text
