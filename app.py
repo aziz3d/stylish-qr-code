@@ -401,7 +401,7 @@ else:
     )
 
 
-@spaces.GPU(duration=60)
+@spaces.GPU(duration=75)
 def generate_qr_code_unified(
     prompt: str,
     text_input: str,
@@ -1600,7 +1600,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         - **Standard QR** (Old pipeline, more stable): Stable, accurate QR code generation (faster, more scannable, less creative)
 
         ### Note:
-        Selecting image_size more then 704 might fail to generate image when other users are trying app at the same time.
+        Larger image sizes may take longer to generate.
 
         Feel free to share your suggestions or feedback on how to improve the app! Thanks!
         """)
