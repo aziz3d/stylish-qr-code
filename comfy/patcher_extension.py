@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Callable
+import torch
 
 class CallbacksMP:
     ON_CLONE = "on_clone"
@@ -103,6 +104,7 @@ class WrapperExecutor:
         new_executor = self._create_next_executor()
         return new_executor.execute(*args, **kwargs)
 
+    @torch.compiler.disable
     def execute(self, *args, **kwargs):
         """Used to initiate executor internally - DO NOT use this if you received executor in wrapper."""
         args = list(args)
@@ -120,10 +122,12 @@ class WrapperExecutor:
         return WrapperExecutor.new_class_executor(self.original, self.class_obj, self.wrappers, new_idx)
 
     @classmethod
+    @torch.compiler.disable
     def new_executor(cls, original: Callable, wrappers: list[Callable], idx=0):
         return cls(original, class_obj=None, wrappers=wrappers, idx=idx)
 
     @classmethod
+    @torch.compiler.disable
     def new_class_executor(cls, original: Callable, class_obj: object, wrappers: list[Callable], idx=0):
         return cls(original, class_obj, wrappers, idx=idx)
 
