@@ -398,7 +398,7 @@ else:
 
 
 
-@spaces.GPU(duration=90)
+@spaces.GPU(duration=120)
 def generate_qr_code_unified(
     prompt: str,
     text_input: str,
@@ -2819,6 +2819,6 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
             # ARTISTIC QR TAB
     app.queue()  # Required for gr.Progress() to work!
-    app.launch(share=True, mcp_server=True)
+    app.launch(share=False, mcp_server=True)
     # Note: Automatic file cleanup via delete_cache not available in Gradio 5.49.1
     # Files will be cleaned up when the server is restarted
