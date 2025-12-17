@@ -398,7 +398,7 @@ else:
 
 
 
-@spaces.GPU(duration=120)
+@spaces.GPU(duration=720)
 def generate_qr_code_unified(
     prompt: str,
     text_input: str,
