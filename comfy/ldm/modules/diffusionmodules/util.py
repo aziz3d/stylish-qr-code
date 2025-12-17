@@ -256,6 +256,7 @@ class CheckpointFunction(torch.autograd.Function):
         return (None, None) + input_grads
 
 
+@torch.compiler.disable
 def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
     """
     Create sinusoidal timestep embeddings.
@@ -267,15 +268,18 @@ def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
     """
     if not repeat_only:
         half = dim // 2
+        # Create on CPU then move to same device as timesteps (torch.compile compatible)
         freqs = torch.exp(
             -math.log(max_period)
             * torch.arange(start=0, end=half, dtype=torch.float32)
             / half
-        ).to(timesteps.device)
+        ).to(timesteps)
         args = timesteps[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+            embedding = torch.cat(
+                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
+            )
     else:
         embedding = repeat(timesteps, 'b -> b d', d=dim)
     return embedding
