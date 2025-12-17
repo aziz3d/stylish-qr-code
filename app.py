@@ -1,14 +1,9 @@
 import os
-import tarfile
+import sys
 
-# Extract pre-compiled Triton kernels if they exist
-if os.path.exists("triton_cache.tar.gz") and not os.path.exists(
-    os.path.expanduser("~/.triton/cache")
-):
-    print("📦 Extracting pre-compiled Triton kernels...")
-    with tarfile.open("triton_cache.tar.gz", "r:gz") as tar:
-        tar.extractall(path=os.path.expanduser("~"))
-    print("✅ Triton kernels ready!")
+# Force unbuffered output for real-time logging
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 
 import json
 import random
@@ -20,13 +15,13 @@ import gradio as gr
 import numpy as np
 import spaces
 import torch
-from huggingface_hub import hf_hub_download
-from PIL import Image
 
 # ComfyUI imports (after HF hub downloads)
 from comfy import model_management
 from comfy.cli_args import args
 from comfy_extras.nodes_freelunch import FreeU_V2
+from huggingface_hub import hf_hub_download
+from PIL import Image
 
 # Suppress torchsde floating-point precision warnings (cosmetic only, no functional impact)
 warnings.filterwarnings("ignore", message="Should have tb<=t1 but got")
@@ -366,8 +361,8 @@ def _apply_torch_compile_optimizations():
             model=standard_model,
             backend="inductor",
             mode="reduce-overhead",  # Best for iterative sampling
-            fullgraph=False,  # Allow SAG to capture attention maps
-            dynamic=False,  # Support all sizes (512-1024, step 64) with one kernel
+            fullgraph=False,  # Allow SAG to capture attention maps (disabled in SAG code)
+            dynamic=True,  # Handle variable batch sizes during CFG without recompiling
             keys=["diffusion_model"],  # Compile UNet only
         )
         print("  ✓ Compiled standard pipeline diffusion model")
@@ -378,9 +373,9 @@ def _apply_torch_compile_optimizations():
             model=artistic_model,
             backend="inductor",
             mode="reduce-overhead",
-            fullgraph=False,  # Allow SAG to capture attention maps
-            dynamic=False,  # Support all sizes (512-1024, step 64) with one kernel
-            keys=["diffusion_model"],
+            fullgraph=False,  # Allow SAG to capture attention maps (disabled in SAG code)
+            dynamic=True,  # Handle variable batch sizes during CFG without recompiling
+            keys=["diffusion_model"],  # Compile UNet only
         )
         print("  ✓ Compiled artistic pipeline diffusion model")
         print("✅ torch.compile optimizations applied successfully!\n")
@@ -392,6 +387,7 @@ def _apply_torch_compile_optimizations():
 
 # Enable torch.compile optimizations (timestep_embedding fixed!)
 # Now works with fullgraph=False for compatibility with SAG
+# FreeU now runs FFT on GPU to enable CUDAGraphs
 # Skip on MPS (MacBooks) - torch.compile with MPS can cause issues
 if not torch.backends.mps.is_available():
     _apply_torch_compile_optimizations()
@@ -399,6 +395,7 @@ else:
     print(
         "ℹ️  torch.compile skipped on MPS (MacBook) - using fp32 optimizations instead"
     )
+
 
 
 @spaces.GPU(duration=90)
@@ -2822,6 +2819,6 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
             # ARTISTIC QR TAB
     app.queue()  # Required for gr.Progress() to work!
-    app.launch(share=False, mcp_server=True)
+    app.launch(share=True, mcp_server=True)
     # Note: Automatic file cleanup via delete_cache not available in Gradio 5.49.1
     # Files will be cleaned up when the server is restarted

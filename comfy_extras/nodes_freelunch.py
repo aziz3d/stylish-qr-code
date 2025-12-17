@@ -41,20 +41,24 @@ class FreeU:
         scale_dict = {model_channels * 4: (b1, s1), model_channels * 2: (b2, s2)}
         on_cpu_devices = {}
 
-        # Disable torch.compile for this function to avoid device access issues
+        # Disable torch.compile for FreeU to prevent graph breaks
         @torch.compiler.disable
         def output_block_patch(h, hsp, transformer_options):
             scale = scale_dict.get(int(h.shape[1]), None)
             if scale is not None:
                 h[:,:h.shape[1] // 2] = h[:,:h.shape[1] // 2] * scale[0]
+
                 if hsp.device not in on_cpu_devices:
                     try:
+                        # Try GPU FFT first - faster if it works
                         hsp = Fourier_filter(hsp, threshold=1, scale=scale[1])
                     except:
-                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(hsp.device))
+                        # Fallback to CPU if GPU fails
+                        logging.warning(f"Device {hsp.device} FFT failed, using CPU fallback")
                         on_cpu_devices[hsp.device] = True
                         hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
                 else:
+                    # Known to need CPU
                     hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
 
             return h, hsp
@@ -82,7 +86,7 @@ class FreeU_V2:
         scale_dict = {model_channels * 4: (b1, s1), model_channels * 2: (b2, s2)}
         on_cpu_devices = {}
 
-        # Disable torch.compile for this function to avoid device access issues
+        # Disable torch.compile for FreeU to prevent graph breaks
         @torch.compiler.disable
         def output_block_patch(h, hsp, transformer_options):
             scale = scale_dict.get(int(h.shape[1]), None)
@@ -97,12 +101,15 @@ class FreeU_V2:
 
                 if hsp.device not in on_cpu_devices:
                     try:
+                        # Try GPU FFT first - faster if it works
                         hsp = Fourier_filter(hsp, threshold=1, scale=scale[1])
                     except:
-                        logging.warning("Device {} does not support the torch.fft functions used in the FreeU node, switching to CPU.".format(hsp.device))
+                        # Fallback to CPU if GPU fails
+                        logging.warning(f"Device {hsp.device} FFT failed, using CPU fallback")
                         on_cpu_devices[hsp.device] = True
                         hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
                 else:
+                    # Known to need CPU
                     hsp = Fourier_filter(hsp.cpu(), threshold=1, scale=scale[1]).to(hsp.device)
 
             return h, hsp

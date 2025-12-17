@@ -34,7 +34,7 @@ def dynamic_slice(
     starts: List[int],
     sizes: List[int],
 ) -> Tensor:
-    slicing = tuple(slice(start, start + size) for start, size in zip(starts, sizes))
+    slicing = [slice(start, start + size) for start, size in zip(starts, sizes)]
     return x[slicing]
 
 

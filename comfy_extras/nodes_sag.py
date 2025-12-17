@@ -123,6 +123,8 @@ class SelfAttentionGuidance:
 
         # TODO: make this work properly with chunked batches
         #       currently, we can only save the attn from one UNet call
+        # Disable torch.compile for this function to prevent CUDAGraphs tensor overwriting
+        @torch.compiler.disable
         def attn_and_record(q, k, v, extra_options):
             nonlocal attn_scores
             # if uncond, save the attention scores
@@ -135,7 +137,8 @@ class SelfAttentionGuidance:
                 (out, sim) = attention_basic_with_sim(q, k, v, heads=heads, attn_precision=extra_options["attn_precision"])
                 # when using a higher batch size, I BELIEVE the result batch dimension is [uc1, ... ucn, c1, ... cn]
                 n_slices = heads * b
-                attn_scores = sim[n_slices * uncond_index:n_slices * (uncond_index+1)]
+                # Clone to prevent CUDAGraphs from overwriting the tensor
+                attn_scores = sim[n_slices * uncond_index:n_slices * (uncond_index+1)].clone()
                 return out
             else:
                 return optimized_attention(q, k, v, heads=heads, attn_precision=extra_options["attn_precision"])
