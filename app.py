@@ -365,7 +365,7 @@ def _apply_torch_compile_optimizations():
         set_torch_compile_wrapper(
             model=standard_model,
             backend="inductor",
-            mode="reduce-overhead",  # Best for iterative sampling
+            mode="max-autotune",  # Maximum runtime speed (longer compile time is OK during warmup)
             fullgraph=False,  # Allow SAG to capture attention maps (disabled in SAG code)
             dynamic=True,  # Handle variable batch sizes during CFG without recompiling
             keys=["diffusion_model"],  # Compile UNet only
@@ -377,7 +377,7 @@ def _apply_torch_compile_optimizations():
         set_torch_compile_wrapper(
             model=artistic_model,
             backend="inductor",
-            mode="reduce-overhead",
+            mode="max-autotune",  # Maximum runtime speed (longer compile time is OK during warmup)
             fullgraph=False,  # Allow SAG to capture attention maps (disabled in SAG code)
             dynamic=True,  # Handle variable batch sizes during CFG without recompiling
             keys=["diffusion_model"],  # Compile UNet only
