@@ -347,6 +347,7 @@ valid_models = [
 
 
 # Apply torch.compile to diffusion models for 1.5-1.7× speedup
+# Used as fallback alongside AOT compilation for dynamic sizes
 # Compilation happens once at startup (30-60s), then cached for fast inference
 def _apply_torch_compile_optimizations():
     """Apply torch.compile to both pipeline models using ComfyUI's infrastructure"""
@@ -354,6 +355,10 @@ def _apply_torch_compile_optimizations():
         from comfy_api.torch_helpers.torch_compile import set_torch_compile_wrapper
 
         print("\n🔧 Applying torch.compile optimizations...")
+
+        # Increase cache limit to handle batch size variations (CFG uses batch 1 and 2)
+        import torch._dynamo.config
+        torch._dynamo.config.cache_size_limit = 64  # Allow more cached graphs
 
         # Compile standard pipeline model (DreamShaper 3.32)
         standard_model = get_value_at_index(checkpointloadersimple_4, 0)
@@ -397,8 +402,121 @@ else:
     )
 
 
+# AOT Compilation with ZeroGPU for faster cold starts
+# Runs once at startup to pre-compile models with example inputs
+@spaces.GPU(duration=1500)  # Maximum allowed during startup
+def compile_models_with_aoti():
+    """
+    Pre-compile both standard and artistic pipelines using AOT compilation.
+    This captures example runs and compiles them ahead of time.
+    """
+    import torch.export
+    from spaces import aoti_capture, aoti_compile, aoti_apply
 
-@spaces.GPU(duration=720)
+    print("\n🔧 Starting AOT compilation warmup...")
+    print("   This will take ~2-3 minutes but speeds up all future generations\n")
+
+    # Test parameters from generate_all_triton_kernels.py
+    TEST_PROMPT = "a beautiful landscape with mountains"
+    TEST_TEXT = "test.com"
+    TEST_SEED = 12345
+
+    try:
+        # ============================================================
+        # 1. Compile Standard Pipeline @ 512px
+        # ============================================================
+        print("📦 [1/2] Compiling standard pipeline (512px)...")
+
+        standard_model = get_value_at_index(checkpointloadersimple_4, 0)
+
+        # Capture example run with aoti_capture
+        with aoti_capture(standard_model.model.diffusion_model) as call:
+            # Run minimal example to capture inputs
+            list(_pipeline_standard(
+                prompt=TEST_PROMPT,
+                text_input=TEST_TEXT,
+                input_type="URL",
+                image_size=512,
+                border_size=0,
+                error_correction="M",
+                module_size=1,
+                module_drawer="square",
+                seed=TEST_SEED,
+                enable_upscale=False,
+                controlnet_strength_first=1.5,
+                controlnet_strength_final=0.9,
+            ))
+
+        # Export and compile
+        exported_standard = torch.export.export(
+            standard_model.model.diffusion_model,
+            args=call.args,
+            kwargs=call.kwargs,
+        )
+        compiled_standard = aoti_compile(exported_standard)
+        aoti_apply(compiled_standard, standard_model.model.diffusion_model)
+
+        print("   ✓ Standard pipeline compiled successfully")
+
+        # ============================================================
+        # 2. Compile Artistic Pipeline @ 640px
+        # ============================================================
+        print("📦 [2/2] Compiling artistic pipeline (640px)...")
+
+        artistic_model = get_value_at_index(checkpointloadersimple_artistic, 0)
+
+        # Capture example run
+        with aoti_capture(artistic_model.model.diffusion_model) as call:
+            list(_pipeline_artistic(
+                prompt=TEST_PROMPT,
+                text_input=TEST_TEXT,
+                input_type="URL",
+                image_size=640,
+                border_size=0,
+                error_correction="M",
+                module_size=1,
+                module_drawer="square",
+                seed=TEST_SEED,
+                enable_upscale=False,
+                controlnet_strength_first=1.5,
+                controlnet_strength_final=0.9,
+                freeu_b1=1.3,
+                freeu_b2=1.4,
+                freeu_s1=0.9,
+                freeu_s2=0.2,
+                enable_sag=True,
+                sag_scale=0.75,
+                sag_blur_sigma=2.0,
+            ))
+
+        # Export and compile
+        exported_artistic = torch.export.export(
+            artistic_model.model.diffusion_model,
+            args=call.args,
+            kwargs=call.kwargs,
+        )
+        compiled_artistic = aoti_compile(exported_artistic)
+        aoti_apply(compiled_artistic, artistic_model.model.diffusion_model)
+
+        print("   ✓ Artistic pipeline compiled successfully")
+        print("\n✅ AOT compilation complete! Models ready for fast inference.\n")
+
+        return True
+
+    except Exception as e:
+        print(f"\n⚠️  AOT compilation failed: {e}")
+        print("   Continuing with torch.compile fallback (still functional)\n")
+        return False
+
+
+# Call AOT compilation during startup (only on CUDA, not MPS)
+if not torch.backends.mps.is_available():
+    compile_models_with_aoti()
+else:
+    print("ℹ️  AOT compilation skipped on MPS (MacBook) - using eager mode\n")
+
+
+@spaces.GPU(duration=60)  # Reduced from 720s - AOTI compilation speeds up inference
 def generate_qr_code_unified(
     prompt: str,
     text_input: str,
