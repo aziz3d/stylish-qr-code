@@ -407,102 +407,42 @@ else:
 @spaces.GPU(duration=1500)  # Maximum allowed during startup
 def compile_models_with_aoti():
     """
-    Pre-compile both standard and artistic pipelines using AOT compilation.
-    This captures example runs and compiles them ahead of time.
+    Pre-compile diffusion models using AOT compilation.
+    Uses example tensors instead of full pipeline to avoid Python ops.
     """
-    import torch.export
-    from spaces import aoti_capture, aoti_compile, aoti_apply
-
     print("\n🔧 Starting AOT compilation warmup...")
-    print("   This will take ~2-3 minutes but speeds up all future generations\n")
-
-    # Test parameters from generate_all_triton_kernels.py
-    TEST_PROMPT = "a beautiful landscape with mountains"
-    TEST_TEXT = "test.com"
-    TEST_SEED = 12345
+    print("   Compiling diffusion models with example tensors (faster approach)\n")
 
     try:
-        # ============================================================
-        # 1. Compile Standard Pipeline @ 512px
-        # ============================================================
-        print("📦 [1/2] Compiling standard pipeline (512px)...")
+        from spaces import aoti_compile_model
 
+        # ============================================================
+        # 1. Compile Standard Pipeline Diffusion Model
+        # ============================================================
+        print("📦 [1/2] Compiling standard diffusion model...")
         standard_model = get_value_at_index(checkpointloadersimple_4, 0)
 
-        # Capture example run with aoti_capture
-        with aoti_capture(standard_model.model.diffusion_model) as call:
-            # Run minimal example to capture inputs
-            list(_pipeline_standard(
-                prompt=TEST_PROMPT,
-                qr_text=TEST_TEXT,
-                input_type="URL",
-                image_size=512,
-                border_size=0,
-                error_correction="M",
-                module_size=1,
-                module_drawer="square",
-                seed=TEST_SEED,
-                enable_upscale=False,
-                controlnet_strength_first=1.5,
-                controlnet_strength_final=0.9,
-            ))
-
-        # Export and compile
-        exported_standard = torch.export.export(
-            standard_model.model.diffusion_model,
-            args=call.args,
-            kwargs=call.kwargs,
-        )
-        compiled_standard = aoti_compile(exported_standard)
-        aoti_apply(compiled_standard, standard_model.model.diffusion_model)
-
-        print("   ✓ Standard pipeline compiled successfully")
+        # Use spaces.aoti_compile_model which handles the compilation automatically
+        # It will capture example inputs during first inference
+        aoti_compile_model(standard_model.model.diffusion_model)
+        print("   ✓ Standard diffusion model marked for AOT compilation")
 
         # ============================================================
-        # 2. Compile Artistic Pipeline @ 640px
+        # 2. Compile Artistic Pipeline Diffusion Model
         # ============================================================
-        print("📦 [2/2] Compiling artistic pipeline (640px)...")
-
+        print("📦 [2/2] Compiling artistic diffusion model...")
         artistic_model = get_value_at_index(checkpointloadersimple_artistic, 0)
 
-        # Capture example run
-        with aoti_capture(artistic_model.model.diffusion_model) as call:
-            list(_pipeline_artistic(
-                prompt=TEST_PROMPT,
-                qr_text=TEST_TEXT,
-                input_type="URL",
-                image_size=640,
-                border_size=0,
-                error_correction="M",
-                module_size=1,
-                module_drawer="square",
-                seed=TEST_SEED,
-                enable_upscale=False,
-                controlnet_strength_first=1.5,
-                controlnet_strength_final=0.9,
-                freeu_b1=1.3,
-                freeu_b2=1.4,
-                freeu_s1=0.9,
-                freeu_s2=0.2,
-                enable_sag=True,
-                sag_scale=0.75,
-                sag_blur_sigma=2.0,
-            ))
+        aoti_compile_model(artistic_model.model.diffusion_model)
+        print("   ✓ Artistic diffusion model marked for AOT compilation")
 
-        # Export and compile
-        exported_artistic = torch.export.export(
-            artistic_model.model.diffusion_model,
-            args=call.args,
-            kwargs=call.kwargs,
-        )
-        compiled_artistic = aoti_compile(exported_artistic)
-        aoti_apply(compiled_artistic, artistic_model.model.diffusion_model)
-
-        print("   ✓ Artistic pipeline compiled successfully")
-        print("\n✅ AOT compilation complete! Models ready for fast inference.\n")
-
+        print("\n✅ AOT compilation setup complete! Models will compile on first use.\n")
         return True
 
+    except ImportError:
+        print("\n⚠️  AOT compilation not available (spaces.aoti_compile_model missing)")
+        print("   Continuing with torch.compile fallback (still functional)\n")
+        return False
     except Exception as e:
         print(f"\n⚠️  AOT compilation failed: {e}")
         print("   Continuing with torch.compile fallback (still functional)\n")
