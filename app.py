@@ -434,7 +434,7 @@ def compile_models_with_aoti():
             # Run minimal example to capture inputs
             list(_pipeline_standard(
                 prompt=TEST_PROMPT,
-                text_input=TEST_TEXT,
+                qr_text=TEST_TEXT,
                 input_type="URL",
                 image_size=512,
                 border_size=0,
@@ -469,7 +469,7 @@ def compile_models_with_aoti():
         with aoti_capture(artistic_model.model.diffusion_model) as call:
             list(_pipeline_artistic(
                 prompt=TEST_PROMPT,
-                text_input=TEST_TEXT,
+                qr_text=TEST_TEXT,
                 input_type="URL",
                 image_size=640,
                 border_size=0,
