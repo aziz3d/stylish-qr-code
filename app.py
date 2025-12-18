@@ -390,63 +390,167 @@ def _apply_torch_compile_optimizations():
         print("   Continuing without compilation (slower but functional)\n")
 
 
-# Enable torch.compile optimizations (timestep_embedding fixed!)
-# Now works with fullgraph=False for compatibility with SAG
-# FreeU now runs FFT on GPU to enable CUDAGraphs
-# Skip on MPS (MacBooks) - torch.compile with MPS can cause issues
-if not torch.backends.mps.is_available():
-    _apply_torch_compile_optimizations()
-else:
-    print(
-        "ℹ️  torch.compile skipped on MPS (MacBook) - using fp32 optimizations instead"
-    )
-
-
 # AOT Compilation with ZeroGPU for faster cold starts
-# Runs once at startup to pre-compile models with example inputs
+# Runs once at startup to pre-compile models
+# Falls back to torch.compile with warmup inference if AOTI unavailable
 @spaces.GPU(duration=1500)  # Maximum allowed during startup
 def compile_models_with_aoti():
     """
     Pre-compile diffusion models using AOT compilation.
-    Uses example tensors instead of full pipeline to avoid Python ops.
+    If AOTI fails, falls back to torch.compile with warmup inference.
+    Uses the full 1500s GPU allocation to ensure models are compiled.
     """
-    print("\n🔧 Starting AOT compilation warmup...")
-    print("   Compiling diffusion models with example tensors (faster approach)\n")
+    print("\n🔧 Starting model compilation warmup...")
+
+    # Test parameters for warmup inference
+    TEST_PROMPT = "a beautiful landscape with mountains"
+    TEST_TEXT = "test.com"
+    TEST_SEED = 12345
 
     try:
-        from spaces import aoti_compile_model
+        from spaces import aoti_capture, aoti_compile, aoti_apply
+        import torch.export
+
+        print("   Attempting AOT compilation...\n")
 
         # ============================================================
-        # 1. Compile Standard Pipeline Diffusion Model
+        # 1. Compile Standard Pipeline @ 512px
         # ============================================================
-        print("📦 [1/2] Compiling standard diffusion model...")
+        print("📦 [1/2] AOT compiling standard pipeline (512px)...")
         standard_model = get_value_at_index(checkpointloadersimple_4, 0)
 
-        # Use spaces.aoti_compile_model which handles the compilation automatically
-        # It will capture example inputs during first inference
-        aoti_compile_model(standard_model.model.diffusion_model)
-        print("   ✓ Standard diffusion model marked for AOT compilation")
+        # Capture example run
+        with aoti_capture(standard_model.model.diffusion_model) as call_standard:
+            list(_pipeline_standard(
+                prompt=TEST_PROMPT,
+                qr_text=TEST_TEXT,
+                input_type="URL",
+                image_size=512,
+                border_size=0,
+                error_correction="M",
+                module_size=1,
+                module_drawer="square",
+                seed=TEST_SEED,
+                enable_upscale=False,
+                controlnet_strength_first=1.5,
+                controlnet_strength_final=0.9,
+            ))
+
+        # Export and compile
+        exported_standard = torch.export.export(
+            standard_model.model.diffusion_model,
+            args=call_standard.args,
+            kwargs=call_standard.kwargs,
+        )
+        compiled_standard = aoti_compile(exported_standard)
+        aoti_apply(compiled_standard, standard_model.model.diffusion_model)
+        print("   ✓ Standard pipeline compiled")
 
         # ============================================================
-        # 2. Compile Artistic Pipeline Diffusion Model
+        # 2. Compile Artistic Pipeline @ 640px
         # ============================================================
-        print("📦 [2/2] Compiling artistic diffusion model...")
+        print("📦 [2/2] AOT compiling artistic pipeline (640px)...")
         artistic_model = get_value_at_index(checkpointloadersimple_artistic, 0)
 
-        aoti_compile_model(artistic_model.model.diffusion_model)
-        print("   ✓ Artistic diffusion model marked for AOT compilation")
+        # Capture example run
+        with aoti_capture(artistic_model.model.diffusion_model) as call_artistic:
+            list(_pipeline_artistic(
+                prompt=TEST_PROMPT,
+                qr_text=TEST_TEXT,
+                input_type="URL",
+                image_size=640,
+                border_size=0,
+                error_correction="M",
+                module_size=1,
+                module_drawer="square",
+                seed=TEST_SEED,
+                enable_upscale=False,
+                controlnet_strength_first=1.5,
+                controlnet_strength_final=0.9,
+                freeu_b1=1.3,
+                freeu_b2=1.4,
+                freeu_s1=0.9,
+                freeu_s2=0.2,
+                enable_sag=True,
+                sag_scale=0.75,
+                sag_blur_sigma=2.0,
+            ))
 
-        print("\n✅ AOT compilation setup complete! Models will compile on first use.\n")
+        # Export and compile
+        exported_artistic = torch.export.export(
+            artistic_model.model.diffusion_model,
+            args=call_artistic.args,
+            kwargs=call_artistic.kwargs,
+        )
+        compiled_artistic = aoti_compile(exported_artistic)
+        aoti_apply(compiled_artistic, artistic_model.model.diffusion_model)
+        print("   ✓ Artistic pipeline compiled")
+
+        print("\n✅ AOT compilation complete! Models ready for fast inference.\n")
         return True
 
-    except ImportError:
-        print("\n⚠️  AOT compilation not available (spaces.aoti_compile_model missing)")
-        print("   Continuing with torch.compile fallback (still functional)\n")
-        return False
-    except Exception as e:
-        print(f"\n⚠️  AOT compilation failed: {e}")
-        print("   Continuing with torch.compile fallback (still functional)\n")
-        return False
+    except (ImportError, Exception) as e:
+        error_type = "not available" if isinstance(e, ImportError) else f"failed: {e}"
+        print(f"\n⚠️  AOT compilation {error_type}")
+        print("   Falling back to torch.compile with warmup inference...\n")
+
+        # Apply torch.compile optimizations
+        _apply_torch_compile_optimizations()
+
+        # Run warmup inference to trigger torch.compile compilation
+        print("🔥 Running warmup inference to compile models (this takes 2-3 minutes)...")
+
+        try:
+            # Warmup standard pipeline @ 512px
+            print("   [1/2] Warming up standard pipeline...")
+            list(_pipeline_standard(
+                prompt=TEST_PROMPT,
+                qr_text=TEST_TEXT,
+                input_type="URL",
+                image_size=512,
+                border_size=0,
+                error_correction="M",
+                module_size=1,
+                module_drawer="square",
+                seed=TEST_SEED,
+                enable_upscale=False,
+                controlnet_strength_first=1.5,
+                controlnet_strength_final=0.9,
+            ))
+            print("   ✓ Standard pipeline compiled")
+
+            # Warmup artistic pipeline @ 640px
+            print("   [2/2] Warming up artistic pipeline...")
+            list(_pipeline_artistic(
+                prompt=TEST_PROMPT,
+                qr_text=TEST_TEXT,
+                input_type="URL",
+                image_size=640,
+                border_size=0,
+                error_correction="M",
+                module_size=1,
+                module_drawer="square",
+                seed=TEST_SEED,
+                enable_upscale=False,
+                controlnet_strength_first=1.5,
+                controlnet_strength_final=0.9,
+                freeu_b1=1.3,
+                freeu_b2=1.4,
+                freeu_s1=0.9,
+                freeu_s2=0.2,
+                enable_sag=True,
+                sag_scale=0.75,
+                sag_blur_sigma=2.0,
+            ))
+            print("   ✓ Artistic pipeline compiled")
+
+            print("\n✅ torch.compile warmup complete! Models ready for fast inference.\n")
+            return True
+
+        except Exception as warmup_error:
+            print(f"\n⚠️  Warmup inference failed: {warmup_error}")
+            print("   Models will compile on first real inference (slower first run)\n")
+            return False
 
 
 @spaces.GPU(duration=60)  # Reduced from 720s - AOTI compilation speeds up inference
