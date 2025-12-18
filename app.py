@@ -1112,7 +1112,7 @@ def add_noise_to_border_only(
         return image_tensor
 
     # Convert to numpy for manipulation
-    img_np = image_tensor.cpu().numpy()
+    img_np = image_tensor.detach().cpu().numpy()
 
     # Set random seed for reproducibility (ensure it's within numpy's valid range)
     np.random.seed(seed % (2**32))
@@ -1249,7 +1249,7 @@ def _pipeline_standard(
 
     # 1) Yield the base QR image as the first intermediate result
     base_qr_tensor = get_value_at_index(comfy_qr_by_module_size_15, 0)
-    base_qr_np = (base_qr_tensor.cpu().numpy() * 255).astype(np.uint8)
+    base_qr_np = (base_qr_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
     base_qr_np = base_qr_np[0]
     base_qr_pil = Image.fromarray(base_qr_np)
     msg = "Generated base QR pattern… enhancing with AI (step 1/3)"
@@ -1325,7 +1325,7 @@ def _pipeline_standard(
 
         # 2) Yield the first decoded image as a second intermediate result
         mid_tensor = get_value_at_index(vaedecode_8, 0)
-        mid_np = (mid_tensor.cpu().numpy() * 255).astype(np.uint8)
+        mid_np = (mid_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         mid_np = mid_np[0]
         mid_pil = Image.fromarray(mid_np)
         msg = "First enhancement pass complete (step 2/3)… refining details"
@@ -1387,7 +1387,7 @@ def _pipeline_standard(
         if enable_upscale:
             # Show pre-upscale result
             pre_upscale_tensor = get_value_at_index(vaedecode_21, 0)
-            pre_upscale_np = (pre_upscale_tensor.cpu().numpy() * 255).astype(np.uint8)
+            pre_upscale_np = (pre_upscale_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
             pre_upscale_np = pre_upscale_np[0]
             pre_upscale_pil = Image.fromarray(pre_upscale_np)
             msg = "Enhancement complete (step 3/4)... upscaling image"
@@ -1402,7 +1402,7 @@ def _pipeline_standard(
             )
 
             image_tensor = get_value_at_index(upscaled, 0)
-            image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
+            image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
             msg = "No errors, all good! Final QR art generated and upscaled. (step 4/4)"
@@ -1411,7 +1411,7 @@ def _pipeline_standard(
         else:
             # No upscaling
             image_tensor = get_value_at_index(vaedecode_21, 0)
-            image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
+            image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
             msg = "No errors, all good! Final QR art generated."
@@ -1466,7 +1466,7 @@ def _pipeline_artistic(
 
     # Show the base QR code
     base_qr_tensor = get_value_at_index(comfy_qr, 0)
-    base_qr_np = (base_qr_tensor.cpu().numpy() * 255).astype(np.uint8)
+    base_qr_np = (base_qr_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
     base_qr_np = base_qr_np[0]
     base_qr_pil = Image.fromarray(base_qr_np)
 
@@ -1497,7 +1497,7 @@ def _pipeline_artistic(
         )
 
         # Show the noisy QR so you can see the border cubic pattern effect
-        noisy_qr_np = (qr_with_border_noise.cpu().numpy() * 255).astype(np.uint8)
+        noisy_qr_np = (qr_with_border_noise.detach().cpu().numpy() * 255).astype(np.uint8)
         noisy_qr_np = noisy_qr_np[0]
         noisy_qr_pil = Image.fromarray(noisy_qr_np)
         msg = f"Added QR-like cubics to border... enhancing with AI (step {current_step}/{total_steps})"
@@ -1622,7 +1622,7 @@ def _pipeline_artistic(
 
     # Show first pass result
     first_pass_tensor = get_value_at_index(decoded, 0)
-    first_pass_np = (first_pass_tensor.cpu().numpy() * 255).astype(np.uint8)
+    first_pass_np = (first_pass_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
     first_pass_np = first_pass_np[0]
     first_pass_pil = Image.fromarray(first_pass_np)
     msg = f"First enhancement pass complete (step {current_step}/{total_steps})... final refinement pass"
@@ -1693,7 +1693,7 @@ def _pipeline_artistic(
     if enable_upscale:
         # Show result before upscaling
         pre_upscale_tensor = get_value_at_index(final_decoded, 0)
-        pre_upscale_np = (pre_upscale_tensor.cpu().numpy() * 255).astype(np.uint8)
+        pre_upscale_np = (pre_upscale_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         pre_upscale_np = pre_upscale_np[0]
         pre_upscale_pil = Image.fromarray(pre_upscale_np)
         msg = f"Final refinement complete (step {current_step}/{total_steps})... upscaling image"
@@ -1710,7 +1710,7 @@ def _pipeline_artistic(
 
         # Convert upscaled image to PIL Image and return
         image_tensor = get_value_at_index(upscaled, 0)
-        image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
+        image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
         msg = f"No errors, all good! Final artistic QR code generated and upscaled. (step {current_step}/{total_steps})"
@@ -1719,7 +1719,7 @@ def _pipeline_artistic(
     else:
         # No upscaling
         image_tensor = get_value_at_index(final_decoded, 0)
-        image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
+        image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
         msg = f"No errors, all good! Final artistic QR code generated. (step {current_step}/{total_steps})"
