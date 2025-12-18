@@ -1726,15 +1726,14 @@ def _pipeline_artistic(
         log_progress(msg, gr_progress, 1.0)
         yield (final_image, msg)
 
-# Call AOT compilation during startup (only on CUDA, not MPS)
-# This must be after pipeline function definitions
-if not torch.backends.mps.is_available():
-    compile_models_with_aoti()
-else:
-    print("ℹ️  AOT compilation skipped on MPS (MacBook) - using eager mode\n")
-
-
 if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
+    # Call AOT compilation during startup (only on CUDA, not MPS)
+    # Must be called after module init but before Gradio app launch
+    if not torch.backends.mps.is_available():
+        compile_models_with_aoti()
+    else:
+        print("ℹ️  AOT compilation skipped on MPS (MacBook) - using eager mode\n")
+
     # Start your Gradio app with automatic cache cleanup
     # delete_cache=(3600, 3600) means: check every hour and delete files older than 1 hour
     with gr.Blocks(delete_cache=(3600, 3600)) as app:
