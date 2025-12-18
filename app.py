@@ -509,13 +509,6 @@ def compile_models_with_aoti():
         return False
 
 
-# Call AOT compilation during startup (only on CUDA, not MPS)
-if not torch.backends.mps.is_available():
-    compile_models_with_aoti()
-else:
-    print("ℹ️  AOT compilation skipped on MPS (MacBook) - using eager mode\n")
-
-
 @spaces.GPU(duration=60)  # Reduced from 720s - AOTI compilation speeds up inference
 def generate_qr_code_unified(
     prompt: str,
@@ -1688,6 +1681,13 @@ def _pipeline_artistic(
         msg = f"No errors, all good! Final artistic QR code generated. (step {current_step}/{total_steps})"
         log_progress(msg, gr_progress, 1.0)
         yield (final_image, msg)
+
+# Call AOT compilation during startup (only on CUDA, not MPS)
+# This must be after pipeline function definitions
+if not torch.backends.mps.is_available():
+    compile_models_with_aoti()
+else:
+    print("ℹ️  AOT compilation skipped on MPS (MacBook) - using eager mode\n")
 
 
 if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
