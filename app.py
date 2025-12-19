@@ -2380,7 +2380,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         "https://www.pizzamaking.com",
                         "URL",
                         704,
-                        6,
+                        5,
                         "High (30%)",
                         16,
                         "Square",
