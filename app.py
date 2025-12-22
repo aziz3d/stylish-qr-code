@@ -15,13 +15,13 @@ import gradio as gr
 import numpy as np
 import spaces
 import torch
+from huggingface_hub import hf_hub_download
+from PIL import Image
 
 # ComfyUI imports (after HF hub downloads)
 from comfy import model_management
 from comfy.cli_args import args
 from comfy_extras.nodes_freelunch import FreeU_V2
-from huggingface_hub import hf_hub_download
-from PIL import Image
 
 # Suppress torchsde floating-point precision warnings (cosmetic only, no functional impact)
 warnings.filterwarnings("ignore", message="Should have tb<=t1 but got")
@@ -358,6 +358,7 @@ def _apply_torch_compile_optimizations():
 
         # Increase cache limit to handle batch size variations (CFG uses batch 1 and 2)
         import torch._dynamo.config
+
         torch._dynamo.config.cache_size_limit = 64  # Allow more cached graphs
 
         # Compile standard pipeline model (DreamShaper 3.32)
@@ -408,8 +409,8 @@ def compile_models_with_aoti():
     TEST_SEED = 12345
 
     try:
-        from spaces import aoti_capture, aoti_compile, aoti_apply
         import torch.export
+        from spaces import aoti_apply, aoti_capture, aoti_compile
 
         print("   Attempting AOT compilation...\n")
 
@@ -421,20 +422,22 @@ def compile_models_with_aoti():
 
         # Capture example run
         with aoti_capture(standard_model.model.diffusion_model) as call_standard:
-            list(_pipeline_standard(
-                prompt=TEST_PROMPT,
-                qr_text=TEST_TEXT,
-                input_type="URL",
-                image_size=512,
-                border_size=4,
-                error_correction="Medium (15%)",
-                module_size=12,
-                module_drawer="Square",
-                seed=TEST_SEED,
-                enable_upscale=False,
-                controlnet_strength_first=1.5,
-                controlnet_strength_final=0.9,
-            ))
+            list(
+                _pipeline_standard(
+                    prompt=TEST_PROMPT,
+                    qr_text=TEST_TEXT,
+                    input_type="URL",
+                    image_size=512,
+                    border_size=4,
+                    error_correction="Medium (15%)",
+                    module_size=12,
+                    module_drawer="Square",
+                    seed=TEST_SEED,
+                    enable_upscale=False,
+                    controlnet_strength_first=1.5,
+                    controlnet_strength_final=0.9,
+                )
+            )
 
         # Export and compile
         exported_standard = torch.export.export(
@@ -454,27 +457,29 @@ def compile_models_with_aoti():
 
         # Capture example run
         with aoti_capture(artistic_model.model.diffusion_model) as call_artistic:
-            list(_pipeline_artistic(
-                prompt=TEST_PROMPT,
-                qr_text=TEST_TEXT,
-                input_type="URL",
-                image_size=640,
-                border_size=4,
-                error_correction="Medium (15%)",
-                module_size=12,
-                module_drawer="Square",
-                seed=TEST_SEED,
-                enable_upscale=False,
-                controlnet_strength_first=1.5,
-                controlnet_strength_final=0.9,
-                freeu_b1=1.3,
-                freeu_b2=1.4,
-                freeu_s1=0.9,
-                freeu_s2=0.2,
-                enable_sag=True,
-                sag_scale=0.75,
-                sag_blur_sigma=2.0,
-            ))
+            list(
+                _pipeline_artistic(
+                    prompt=TEST_PROMPT,
+                    qr_text=TEST_TEXT,
+                    input_type="URL",
+                    image_size=640,
+                    border_size=4,
+                    error_correction="Medium (15%)",
+                    module_size=12,
+                    module_drawer="Square",
+                    seed=TEST_SEED,
+                    enable_upscale=False,
+                    controlnet_strength_first=1.5,
+                    controlnet_strength_final=0.9,
+                    freeu_b1=1.3,
+                    freeu_b2=1.4,
+                    freeu_s1=0.9,
+                    freeu_s2=0.2,
+                    enable_sag=True,
+                    sag_scale=0.75,
+                    sag_blur_sigma=2.0,
+                )
+            )
 
         # Export and compile
         exported_artistic = torch.export.export(
@@ -498,53 +503,61 @@ def compile_models_with_aoti():
         _apply_torch_compile_optimizations()
 
         # Run warmup inference to trigger torch.compile compilation
-        print("🔥 Running warmup inference to compile models (this takes 2-3 minutes)...")
+        print(
+            "🔥 Running warmup inference to compile models (this takes 2-3 minutes)..."
+        )
 
         try:
             # Warmup standard pipeline @ 512px
             print("   [1/2] Warming up standard pipeline...")
-            list(_pipeline_standard(
-                prompt=TEST_PROMPT,
-                qr_text=TEST_TEXT,
-                input_type="URL",
-                image_size=512,
-                border_size=4,
-                error_correction="Medium (15%)",
-                module_size=12,
-                module_drawer="Square",
-                seed=TEST_SEED,
-                enable_upscale=False,
-                controlnet_strength_first=1.5,
-                controlnet_strength_final=0.9,
-            ))
+            list(
+                _pipeline_standard(
+                    prompt=TEST_PROMPT,
+                    qr_text=TEST_TEXT,
+                    input_type="URL",
+                    image_size=512,
+                    border_size=4,
+                    error_correction="Medium (15%)",
+                    module_size=12,
+                    module_drawer="Square",
+                    seed=TEST_SEED,
+                    enable_upscale=False,
+                    controlnet_strength_first=1.5,
+                    controlnet_strength_final=0.9,
+                )
+            )
             print("   ✓ Standard pipeline compiled")
 
             # Warmup artistic pipeline @ 640px
             print("   [2/2] Warming up artistic pipeline...")
-            list(_pipeline_artistic(
-                prompt=TEST_PROMPT,
-                qr_text=TEST_TEXT,
-                input_type="URL",
-                image_size=640,
-                border_size=4,
-                error_correction="Medium (15%)",
-                module_size=12,
-                module_drawer="Square",
-                seed=TEST_SEED,
-                enable_upscale=False,
-                controlnet_strength_first=1.5,
-                controlnet_strength_final=0.9,
-                freeu_b1=1.3,
-                freeu_b2=1.4,
-                freeu_s1=0.9,
-                freeu_s2=0.2,
-                enable_sag=True,
-                sag_scale=0.75,
-                sag_blur_sigma=2.0,
-            ))
+            list(
+                _pipeline_artistic(
+                    prompt=TEST_PROMPT,
+                    qr_text=TEST_TEXT,
+                    input_type="URL",
+                    image_size=640,
+                    border_size=4,
+                    error_correction="Medium (15%)",
+                    module_size=12,
+                    module_drawer="Square",
+                    seed=TEST_SEED,
+                    enable_upscale=False,
+                    controlnet_strength_first=1.5,
+                    controlnet_strength_final=0.9,
+                    freeu_b1=1.3,
+                    freeu_b2=1.4,
+                    freeu_s1=0.9,
+                    freeu_s2=0.2,
+                    enable_sag=True,
+                    sag_scale=0.75,
+                    sag_blur_sigma=2.0,
+                )
+            )
             print("   ✓ Artistic pipeline compiled")
 
-            print("\n✅ torch.compile warmup complete! Models ready for fast inference.\n")
+            print(
+                "\n✅ torch.compile warmup complete! Models ready for fast inference.\n"
+            )
             return True
 
         except Exception as warmup_error:
@@ -578,6 +591,15 @@ def generate_qr_code_unified(
     controlnet_strength_final: float = 0.7,
     controlnet_strength_standard_first: float = 0.45,
     controlnet_strength_standard_final: float = 1.0,
+    enable_color_quantization: bool = False,
+    num_colors: int = 4,
+    color_1: str = "#000000",
+    color_2: str = "#FFFFFF",
+    color_3: str = "#FF0000",
+    color_4: str = "#00FF00",
+    apply_gradient_filter: bool = False,
+    gradient_strength: float = 0.3,
+    variation_steps: int = 5,
     progress=gr.Progress(),
 ):
     # Only manipulate the text if it's a URL input type
@@ -606,6 +628,15 @@ def generate_qr_code_unified(
                 enable_upscale,
                 controlnet_strength_standard_first,
                 controlnet_strength_standard_final,
+                enable_color_quantization,
+                num_colors,
+                color_1,
+                color_2,
+                color_3,
+                color_4,
+                apply_gradient_filter,
+                gradient_strength,
+                variation_steps,
                 progress,
             )
         else:  # artistic
@@ -629,8 +660,206 @@ def generate_qr_code_unified(
                 sag_blur_sigma,
                 controlnet_strength_first,
                 controlnet_strength_final,
+                enable_color_quantization,
+                num_colors,
+                color_1,
+                color_2,
+                color_3,
+                color_4,
+                apply_gradient_filter,
+                gradient_strength,
+                variation_steps,
                 progress,
             )
+
+
+def apply_color_quantization(
+    image: Image.Image,
+    colors: list[str],
+    num_colors: int = 4,
+    apply_gradients: bool = False,
+    gradient_strength: float = 0.3,
+    variation_steps: int = 5,
+) -> Image.Image:
+    """
+    Apply color quantization to an image using nearest-color mapping.
+    Optionally apply gradient filter for artistic effect while preserving QR scannability.
+
+    Args:
+        image: PIL Image to quantize
+        colors: List of hex color strings (e.g., ["#FF0000", "#00FF00", "#0000FF", "#FFFFFF"])
+        num_colors: Number of colors to use from the colors list (2-4)
+        apply_gradients: If True, create gradient variations around base colors
+        gradient_strength: How much brightness variation to allow (0.0-1.0), e.g. 0.3 = ±30%
+        variation_steps: Number of gradient steps for each color (1-10)
+
+    Returns:
+        Quantized PIL Image (with optional gradient effect)
+
+    Note:
+        When gradients are enabled, first 2 colors are always preserved (no gradients)
+        to maintain QR code scannability. Only colors 3-4 get gradient variations.
+    """
+    # Validate num_colors
+    if num_colors < 2:
+        num_colors = 2
+    if num_colors > len(colors):
+        num_colors = len(colors)
+
+    # Parse colors with error handling (supports both hex and rgba formats)
+    palette = []
+    for color_str in colors[:num_colors]:
+        try:
+            # Check if it's an rgba string (from Gradio ColorPicker)
+            if color_str.startswith("rgba("):
+                # Extract RGB values from "rgba(r, g, b, a)" format
+                rgb_part = color_str[5:-1]  # Remove "rgba(" and ")"
+                values = [float(v.strip()) for v in rgb_part.split(",")]
+                r = int(values[0])
+                g = int(values[1])
+                b = int(values[2])
+                palette.append((r, g, b))
+            else:
+                # Assume hex format
+                color_hex = color_str.lstrip("#")
+                r = int(color_hex[0:2], 16)
+                g = int(color_hex[2:4], 16)
+                b = int(color_hex[4:6], 16)
+                palette.append((r, g, b))
+        except (ValueError, IndexError, AttributeError):
+            # Fallback to black for invalid colors
+            palette.append((0, 0, 0))
+
+    # Ensure at least 2 colors
+    if len(palette) < 2:
+        palette = [(0, 0, 0), (255, 255, 255)]  # Default to black & white
+
+    # Convert PIL Image to numpy array
+    img_array = np.array(image)
+
+    # Handle RGBA images by converting to RGB
+    if img_array.shape[2] == 4:
+        img_array = img_array[:, :, :3]
+
+    h, w, c = img_array.shape
+    pixels = img_array.reshape(h * w, c).astype(np.float32)
+
+    # ============================================================
+    # GRADIENT FILTER MODE: Create gradient variations
+    # ============================================================
+    if apply_gradients:
+        # Always preserve first 2 colors (black/white for QR scannability)
+        preserve_colors = [0, 1]
+
+        # Create gradient palette
+        palette_with_gradients = []
+        color_family_map = []  # Track which base color each gradient belongs to
+
+        for base_idx, base_color in enumerate(palette):
+            r, g, b = base_color
+
+            # Check if this color should be preserved (no gradients)
+            if base_idx in preserve_colors:
+                # Keep this color pure - only add the base color once
+                palette_with_gradients.append((r, g, b))
+                color_family_map.append(base_idx)
+            else:
+                # Create variations from dark to light
+                for step in range(variation_steps):
+                    # Calculate brightness multiplier
+                    if variation_steps == 1:
+                        multiplier = 1.0  # Only use base color when steps=1
+                    else:
+                        multiplier = 1.0 + gradient_strength * (
+                            2 * step / (variation_steps - 1) - 1
+                        )
+
+                    # Apply multiplier and clamp to valid range
+                    varied_r = int(np.clip(r * multiplier, 0, 255))
+                    varied_g = int(np.clip(g * multiplier, 0, 255))
+                    varied_b = int(np.clip(b * multiplier, 0, 255))
+
+                    palette_with_gradients.append((varied_r, varied_g, varied_b))
+                    color_family_map.append(base_idx)
+
+        gradient_palette_array = np.array(palette_with_gradients, dtype=np.float32)
+        base_palette_array = np.array(palette, dtype=np.float32)
+
+        # Calculate original pixel brightness for gradient selection
+        pixel_brightness = np.mean(pixels, axis=1)
+
+        # Step 1: Find nearest BASE color for each pixel
+        distances_to_base = np.sqrt(
+            np.sum((pixels[:, None, :] - base_palette_array[None, :, :]) ** 2, axis=2)
+        )
+        nearest_base_idx = np.argmin(distances_to_base, axis=1)
+
+        # Step 2: Fully vectorized gradient assignment
+        # Create mapping from base color index to gradient range
+        gradient_ranges = {}
+        for base_idx in range(len(palette)):
+            family_indices = [
+                i for i, fam in enumerate(color_family_map) if fam == base_idx
+            ]
+            gradient_ranges[base_idx] = np.array(family_indices)
+
+        # Initialize result
+        result_indices = np.zeros(len(pixels), dtype=int)
+
+        # For each base color family, compute gradient indices
+        for base_idx in range(len(palette)):
+            mask = nearest_base_idx == base_idx
+            if not np.any(mask):
+                continue
+
+            family_indices = gradient_ranges[base_idx]
+            masked_brightness = pixel_brightness[mask]
+
+            # Normalize brightness within this family
+            min_b, max_b = masked_brightness.min(), masked_brightness.max()
+            if max_b > min_b:
+                norm_bright = (masked_brightness - min_b) / (max_b - min_b)
+            else:
+                norm_bright = np.full(len(masked_brightness), 0.5)
+
+            # Map to gradient steps
+            steps = (norm_bright * (len(family_indices) - 1)).astype(int)
+            steps = np.clip(steps, 0, len(family_indices) - 1)
+
+            # Assign palette indices
+            result_indices[mask] = family_indices[steps]
+
+        # Final color assignment
+        result_pixels = gradient_palette_array[result_indices].astype(np.uint8)
+        quantized_image = result_pixels.reshape(h, w, c)
+
+    # ============================================================
+    # STRICT QUANTIZATION MODE: No gradients
+    # ============================================================
+    else:
+        # Convert palette to numpy array
+        palette_array = np.array(palette, dtype=np.uint8)
+
+        # Calculate Euclidean distance from each pixel to each palette color
+        distances = np.sqrt(
+            np.sum(
+                (pixels[:, None, :] - palette_array[None, :, :].astype(np.float32))
+                ** 2,
+                axis=2,
+            )
+        )
+
+        # Find index of nearest color for each pixel
+        nearest_indices = np.argmin(distances, axis=1)
+
+        # Map each pixel to its nearest palette color
+        quantized = palette_array[nearest_indices]
+
+        # Reshape back to image dimensions
+        quantized_image = quantized.reshape(h, w, c).astype(np.uint8)
+
+    # Convert back to PIL Image
+    return Image.fromarray(quantized_image)
 
 
 def generate_standard_qr(
@@ -648,6 +877,15 @@ def generate_standard_qr(
     enable_freeu: bool = False,
     controlnet_strength_standard_first: float = 0.45,
     controlnet_strength_standard_final: float = 1.0,
+    enable_color_quantization: bool = False,
+    num_colors: int = 4,
+    color_1: str = "#000000",
+    color_2: str = "#FFFFFF",
+    color_3: str = "#FF0000",
+    color_4: str = "#00FF00",
+    apply_gradient_filter: bool = False,
+    gradient_strength: float = 0.3,
+    variation_steps: int = 5,
     progress=gr.Progress(),
 ):
     """Wrapper function for standard QR generation"""
@@ -671,6 +909,15 @@ def generate_standard_qr(
         "enable_freeu": enable_freeu,
         "controlnet_strength_standard_first": controlnet_strength_standard_first,
         "controlnet_strength_standard_final": controlnet_strength_standard_final,
+        "enable_color_quantization": enable_color_quantization,
+        "num_colors": num_colors,
+        "color_1": color_1,
+        "color_2": color_2,
+        "color_3": color_3,
+        "color_4": color_4,
+        "apply_gradient_filter": apply_gradient_filter,
+        "gradient_strength": gradient_strength,
+        "variation_steps": variation_steps,
     }
     settings_json = generate_settings_json(settings_dict)
 
@@ -690,6 +937,15 @@ def generate_standard_qr(
         enable_upscale=enable_upscale,
         controlnet_strength_standard_first=controlnet_strength_standard_first,
         controlnet_strength_standard_final=controlnet_strength_standard_final,
+        enable_color_quantization=enable_color_quantization,
+        num_colors=num_colors,
+        color_1=color_1,
+        color_2=color_2,
+        color_3=color_3,
+        color_4=color_4,
+        apply_gradient_filter=apply_gradient_filter,
+        gradient_strength=gradient_strength,
+        variation_steps=variation_steps,
         progress=progress,
     )
 
@@ -734,6 +990,15 @@ def generate_artistic_qr(
     sag_blur_sigma: float = 0.5,
     controlnet_strength_first: float = 0.45,
     controlnet_strength_final: float = 0.70,
+    enable_color_quantization: bool = False,
+    num_colors: int = 4,
+    color_1: str = "#000000",
+    color_2: str = "#FFFFFF",
+    color_3: str = "#FF0000",
+    color_4: str = "#00FF00",
+    apply_gradient_filter: bool = False,
+    gradient_strength: float = 0.3,
+    variation_steps: int = 5,
     progress=gr.Progress(),
 ):
     """Wrapper function for artistic QR generation with FreeU and SAG parameters"""
@@ -764,6 +1029,15 @@ def generate_artistic_qr(
         "sag_blur_sigma": sag_blur_sigma,
         "controlnet_strength_first": controlnet_strength_first,
         "controlnet_strength_final": controlnet_strength_final,
+        "enable_color_quantization": enable_color_quantization,
+        "num_colors": num_colors,
+        "color_1": color_1,
+        "color_2": color_2,
+        "color_3": color_3,
+        "color_4": color_4,
+        "apply_gradient_filter": apply_gradient_filter,
+        "gradient_strength": gradient_strength,
+        "variation_steps": variation_steps,
     }
     settings_json = generate_settings_json(settings_dict)
 
@@ -790,6 +1064,15 @@ def generate_artistic_qr(
         sag_blur_sigma=sag_blur_sigma,
         controlnet_strength_first=controlnet_strength_first,
         controlnet_strength_final=controlnet_strength_final,
+        enable_color_quantization=enable_color_quantization,
+        num_colors=num_colors,
+        color_1=color_1,
+        color_2=color_2,
+        color_3=color_3,
+        color_4=color_4,
+        apply_gradient_filter=apply_gradient_filter,
+        gradient_strength=gradient_strength,
+        variation_steps=variation_steps,
         progress=progress,
     )
 
@@ -867,6 +1150,15 @@ def load_settings_from_json_standard(json_string: str):
                 gr.update(),
                 gr.update(),
                 gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
                 gr.update(value=error_msg, visible=True),
             )
 
@@ -889,6 +1181,15 @@ def load_settings_from_json_standard(json_string: str):
         controlnet_strength_standard_final = params.get(
             "controlnet_strength_standard_final", 1.0
         )
+        enable_color_quantization = params.get("enable_color_quantization", False)
+        num_colors = params.get("num_colors", 4)
+        color_1 = params.get("color_1", "#000000")
+        color_2 = params.get("color_2", "#FFFFFF")
+        color_3 = params.get("color_3", "#FF0000")
+        color_4 = params.get("color_4", "#00FF00")
+        apply_gradient_filter = params.get("apply_gradient_filter", False)
+        gradient_strength = params.get("gradient_strength", 0.3)
+        variation_steps = params.get("variation_steps", 5)
 
         success_msg = "✅ Settings loaded successfully!"
         return (
@@ -906,6 +1207,15 @@ def load_settings_from_json_standard(json_string: str):
             enable_freeu,
             controlnet_strength_standard_first,
             controlnet_strength_standard_final,
+            enable_color_quantization,
+            num_colors,
+            color_1,
+            color_2,
+            color_3,
+            color_4,
+            apply_gradient_filter,
+            gradient_strength,
+            variation_steps,
             gr.update(value=success_msg, visible=True),
         )
 
@@ -926,11 +1236,29 @@ def load_settings_from_json_standard(json_string: str):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             gr.update(value=error_msg, visible=True),
         )
     except Exception as e:
         error_msg = f"❌ Error loading settings: {str(e)}"
         return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             gr.update(),
             gr.update(),
             gr.update(),
@@ -983,6 +1311,15 @@ def load_settings_from_json_artistic(json_string: str):
                 gr.update(),
                 gr.update(),
                 gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
+                gr.update(),
                 gr.update(value=error_msg, visible=True),
             )
 
@@ -1008,6 +1345,15 @@ def load_settings_from_json_artistic(json_string: str):
         sag_blur_sigma = params.get("sag_blur_sigma", 0.5)
         controlnet_strength_first = params.get("controlnet_strength_first", 0.45)
         controlnet_strength_final = params.get("controlnet_strength_final", 0.7)
+        enable_color_quantization = params.get("enable_color_quantization", False)
+        num_colors = params.get("num_colors", 4)
+        color_1 = params.get("color_1", "#000000")
+        color_2 = params.get("color_2", "#FFFFFF")
+        color_3 = params.get("color_3", "#FF0000")
+        color_4 = params.get("color_4", "#00FF00")
+        apply_gradient_filter = params.get("apply_gradient_filter", False)
+        gradient_strength = params.get("gradient_strength", 0.3)
+        variation_steps = params.get("variation_steps", 5)
 
         success_msg = "✅ Settings loaded successfully!"
         return (
@@ -1032,6 +1378,15 @@ def load_settings_from_json_artistic(json_string: str):
             sag_blur_sigma,
             controlnet_strength_first,
             controlnet_strength_final,
+            enable_color_quantization,
+            num_colors,
+            color_1,
+            color_2,
+            color_3,
+            color_4,
+            apply_gradient_filter,
+            gradient_strength,
+            variation_steps,
             gr.update(value=success_msg, visible=True),
         )
 
@@ -1059,11 +1414,29 @@ def load_settings_from_json_artistic(json_string: str):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             gr.update(value=error_msg, visible=True),
         )
     except Exception as e:
         error_msg = f"❌ Error loading settings: {str(e)}"
         return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
             gr.update(),
             gr.update(),
             gr.update(),
@@ -1192,6 +1565,15 @@ def _pipeline_standard(
     enable_upscale: bool = False,
     controlnet_strength_first: float = 0.45,
     controlnet_strength_final: float = 1.0,
+    enable_color_quantization: bool = False,
+    num_colors: int = 4,
+    color_1: str = "#000000",
+    color_2: str = "#FFFFFF",
+    color_3: str = "#FF0000",
+    color_4: str = "#00FF00",
+    apply_gradient_filter: bool = False,
+    gradient_strength: float = 0.3,
+    variation_steps: int = 5,
     gr_progress=None,
 ):
     emptylatentimage_5 = emptylatentimage.generate(
@@ -1387,7 +1769,9 @@ def _pipeline_standard(
         if enable_upscale:
             # Show pre-upscale result
             pre_upscale_tensor = get_value_at_index(vaedecode_21, 0)
-            pre_upscale_np = (pre_upscale_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
+            pre_upscale_np = (pre_upscale_tensor.detach().cpu().numpy() * 255).astype(
+                np.uint8
+            )
             pre_upscale_np = pre_upscale_np[0]
             pre_upscale_pil = Image.fromarray(pre_upscale_np)
             msg = "Enhancement complete (step 3/4)... upscaling image"
@@ -1405,6 +1789,18 @@ def _pipeline_standard(
             image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
+
+            # Apply color quantization if enabled
+            if enable_color_quantization:
+                pil_image = apply_color_quantization(
+                    pil_image,
+                    colors=[color_1, color_2, color_3, color_4],
+                    num_colors=num_colors,
+                    apply_gradients=apply_gradient_filter,
+                    gradient_strength=gradient_strength,
+                    variation_steps=variation_steps,
+                )
+
             msg = "No errors, all good! Final QR art generated and upscaled. (step 4/4)"
             log_progress(msg, gr_progress, 1.0)
             yield (pil_image, msg)
@@ -1414,6 +1810,18 @@ def _pipeline_standard(
             image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
+
+            # Apply color quantization if enabled
+            if enable_color_quantization:
+                pil_image = apply_color_quantization(
+                    pil_image,
+                    colors=[color_1, color_2, color_3, color_4],
+                    num_colors=num_colors,
+                    apply_gradients=apply_gradient_filter,
+                    gradient_strength=gradient_strength,
+                    variation_steps=variation_steps,
+                )
+
             msg = "No errors, all good! Final QR art generated."
             log_progress(msg, gr_progress, 1.0)
             yield pil_image, msg
@@ -1439,6 +1847,15 @@ def _pipeline_artistic(
     sag_blur_sigma: float = 0.5,
     controlnet_strength_first: float = 0.45,
     controlnet_strength_final: float = 0.7,
+    enable_color_quantization: bool = False,
+    num_colors: int = 4,
+    color_1: str = "#000000",
+    color_2: str = "#FFFFFF",
+    color_3: str = "#FF0000",
+    color_4: str = "#00FF00",
+    apply_gradient_filter: bool = False,
+    gradient_strength: float = 0.3,
+    variation_steps: int = 5,
     gr_progress=None,
 ):
     # Generate QR code
@@ -1497,7 +1914,9 @@ def _pipeline_artistic(
         )
 
         # Show the noisy QR so you can see the border cubic pattern effect
-        noisy_qr_np = (qr_with_border_noise.detach().cpu().numpy() * 255).astype(np.uint8)
+        noisy_qr_np = (qr_with_border_noise.detach().cpu().numpy() * 255).astype(
+            np.uint8
+        )
         noisy_qr_np = noisy_qr_np[0]
         noisy_qr_pil = Image.fromarray(noisy_qr_np)
         msg = f"Added QR-like cubics to border... enhancing with AI (step {current_step}/{total_steps})"
@@ -1693,7 +2112,9 @@ def _pipeline_artistic(
     if enable_upscale:
         # Show result before upscaling
         pre_upscale_tensor = get_value_at_index(final_decoded, 0)
-        pre_upscale_np = (pre_upscale_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
+        pre_upscale_np = (pre_upscale_tensor.detach().cpu().numpy() * 255).astype(
+            np.uint8
+        )
         pre_upscale_np = pre_upscale_np[0]
         pre_upscale_pil = Image.fromarray(pre_upscale_np)
         msg = f"Final refinement complete (step {current_step}/{total_steps})... upscaling image"
@@ -1713,6 +2134,18 @@ def _pipeline_artistic(
         image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
+
+        # Apply color quantization if enabled
+        if enable_color_quantization:
+            final_image = apply_color_quantization(
+                final_image,
+                colors=[color_1, color_2, color_3, color_4],
+                num_colors=num_colors,
+                apply_gradients=apply_gradient_filter,
+                gradient_strength=gradient_strength,
+                variation_steps=variation_steps,
+            )
+
         msg = f"No errors, all good! Final artistic QR code generated and upscaled. (step {current_step}/{total_steps})"
         log_progress(msg, gr_progress, 1.0)
         yield (final_image, msg)
@@ -1722,9 +2155,22 @@ def _pipeline_artistic(
         image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
         final_image = Image.fromarray(image_np)
+
+        # Apply color quantization if enabled
+        if enable_color_quantization:
+            final_image = apply_color_quantization(
+                final_image,
+                colors=[color_1, color_2, color_3, color_4],
+                num_colors=num_colors,
+                apply_gradients=apply_gradient_filter,
+                gradient_strength=gradient_strength,
+                variation_steps=variation_steps,
+            )
+
         msg = f"No errors, all good! Final artistic QR code generated. (step {current_step}/{total_steps})"
         log_progress(msg, gr_progress, 1.0)
         yield (final_image, msg)
+
 
 if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
     # Call AOT compilation during startup (only on CUDA, not MPS)
@@ -1939,6 +2385,113 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                                 info="Enable upscaling with RealESRGAN for higher quality output (enabled by default for artistic pipeline)",
                             )
 
+                            # Color Quantization Section
+                            gr.Markdown("### Color Quantization (Optional)")
+                            artistic_enable_color_quantization = gr.Checkbox(
+                                label="Enable Color Quantization",
+                                value=False,
+                                info="Apply a custom color palette to the generated image",
+                            )
+
+                            artistic_num_colors = gr.Slider(
+                                minimum=2,
+                                maximum=4,
+                                step=1,
+                                value=4,
+                                label="Number of Colors",
+                                info="How many colors to use from the palette (2-4)",
+                                visible=False,
+                            )
+
+                            # Colors 1 & 2 (QR code colors - hidden when gradient enabled)
+                            with gr.Row(
+                                visible=False
+                            ) as artistic_color_pickers_row_1_2:
+                                artistic_color_1 = gr.ColorPicker(
+                                    label="Color 1 (QR Dark)",
+                                    value="#000000",
+                                    info="Preserved when using gradients",
+                                )
+                                artistic_color_2 = gr.ColorPicker(
+                                    label="Color 2 (QR Light)",
+                                    value="#FFFFFF",
+                                    info="Preserved when using gradients",
+                                )
+
+                            # Colors 3 & 4 (Background colors - always editable)
+                            with gr.Row(
+                                visible=False
+                            ) as artistic_color_pickers_row_3_4:
+                                artistic_color_3 = gr.ColorPicker(
+                                    label="Color 3 (Background)", value="#FF0000"
+                                )
+                                artistic_color_4 = gr.ColorPicker(
+                                    label="Color 4 (Background)", value="#00FF00"
+                                )
+
+                            # Gradient Filter Section (nested under color quantization)
+                            artistic_apply_gradient_filter = gr.Checkbox(
+                                label="Apply Gradient Filter",
+                                value=False,
+                                visible=False,
+                                elem_id="artistic_gradient_checkbox",
+                                info="Create gradient variations around colors 3-4 while preserving colors 1-2 for QR scannability",
+                            )
+
+                            artistic_gradient_strength = gr.Slider(
+                                minimum=0.1,
+                                maximum=1.0,
+                                step=0.1,
+                                value=0.3,
+                                label="Gradient Strength",
+                                info="Brightness variation (0.3 = ±30%)",
+                                visible=False,
+                            )
+
+                            artistic_variation_steps = gr.Slider(
+                                minimum=1,
+                                maximum=10,
+                                step=1,
+                                value=5,
+                                label="Variation Steps",
+                                info="Number of gradient steps (higher = smoother)",
+                                visible=False,
+                            )
+
+                            # Visibility toggle for gradient filter
+                            artistic_apply_gradient_filter.change(
+                                fn=lambda gradient_enabled: (
+                                    gr.update(visible=gradient_enabled),
+                                    gr.update(visible=gradient_enabled),
+                                    gr.update(
+                                        visible=not gradient_enabled
+                                    ),  # Hide colors 1&2 when gradient ON
+                                ),
+                                inputs=[artistic_apply_gradient_filter],
+                                outputs=[
+                                    artistic_gradient_strength,
+                                    artistic_variation_steps,
+                                    artistic_color_pickers_row_1_2,
+                                ],
+                            )
+
+                            # Visibility toggle for color quantization
+                            artistic_enable_color_quantization.change(
+                                fn=lambda enabled: (
+                                    gr.update(visible=enabled),
+                                    gr.update(visible=enabled),
+                                    gr.update(visible=enabled),
+                                    gr.update(visible=enabled),
+                                ),
+                                inputs=[artistic_enable_color_quantization],
+                                outputs=[
+                                    artistic_num_colors,
+                                    artistic_color_pickers_row_1_2,
+                                    artistic_color_pickers_row_3_4,
+                                    artistic_apply_gradient_filter,
+                                ],
+                            )
+
                             # Add seed controls for artistic QR
                             artistic_use_custom_seed = gr.Checkbox(
                                 label="Use Custom Seed",
@@ -2094,6 +2647,15 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         sag_blur_sigma,
                         controlnet_strength_first,
                         controlnet_strength_final,
+                        artistic_enable_color_quantization,
+                        artistic_num_colors,
+                        artistic_color_1,
+                        artistic_color_2,
+                        artistic_color_3,
+                        artistic_color_4,
+                        artistic_apply_gradient_filter,
+                        artistic_gradient_strength,
+                        artistic_variation_steps,
                     ],
                     outputs=[
                         artistic_output_image,
@@ -2129,6 +2691,15 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         sag_blur_sigma,
                         controlnet_strength_first,
                         controlnet_strength_final,
+                        artistic_enable_color_quantization,
+                        artistic_num_colors,
+                        artistic_color_1,
+                        artistic_color_2,
+                        artistic_color_3,
+                        artistic_color_4,
+                        artistic_apply_gradient_filter,
+                        artistic_gradient_strength,
+                        artistic_variation_steps,
                         import_status_artistic,
                     ],
                 )
@@ -2729,6 +3300,109 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                                 info="Enable FreeU quality enhancement (disabled by default for standard pipeline)",
                             )
 
+                            # Color Quantization Section
+                            gr.Markdown("### Color Quantization (Optional)")
+                            enable_color_quantization = gr.Checkbox(
+                                label="Enable Color Quantization",
+                                value=False,
+                                info="Apply a custom color palette to the generated image",
+                            )
+
+                            num_colors = gr.Slider(
+                                minimum=2,
+                                maximum=4,
+                                step=1,
+                                value=4,
+                                label="Number of Colors",
+                                info="How many colors to use from the palette (2-4)",
+                                visible=False,
+                            )
+
+                            # Colors 1 & 2 (QR code colors - hidden when gradient enabled)
+                            with gr.Row(visible=False) as color_pickers_row_1_2:
+                                color_1 = gr.ColorPicker(
+                                    label="Color 1 (QR Dark)",
+                                    value="#000000",
+                                    info="Preserved when using gradients",
+                                )
+                                color_2 = gr.ColorPicker(
+                                    label="Color 2 (QR Light)",
+                                    value="#FFFFFF",
+                                    info="Preserved when using gradients",
+                                )
+
+                            # Colors 3 & 4 (Background colors - always editable)
+                            with gr.Row(visible=False) as color_pickers_row_3_4:
+                                color_3 = gr.ColorPicker(
+                                    label="Color 3 (Background)", value="#FF0000"
+                                )
+                                color_4 = gr.ColorPicker(
+                                    label="Color 4 (Background)", value="#00FF00"
+                                )
+
+                            # Gradient Filter Section (nested under color quantization)
+                            apply_gradient_filter = gr.Checkbox(
+                                label="Apply Gradient Filter",
+                                value=False,
+                                visible=False,
+                                elem_id="gradient_checkbox",
+                                info="Create gradient variations around colors 3-4 while preserving colors 1-2 for QR scannability",
+                            )
+
+                            gradient_strength = gr.Slider(
+                                minimum=0.1,
+                                maximum=1.0,
+                                step=0.1,
+                                value=0.3,
+                                label="Gradient Strength",
+                                info="Brightness variation (0.3 = ±30%)",
+                                visible=False,
+                            )
+
+                            variation_steps = gr.Slider(
+                                minimum=1,
+                                maximum=10,
+                                step=1,
+                                value=5,
+                                label="Variation Steps",
+                                info="Number of gradient steps (higher = smoother)",
+                                visible=False,
+                            )
+
+                            # Visibility toggle for gradient filter
+                            apply_gradient_filter.change(
+                                fn=lambda gradient_enabled: (
+                                    gr.update(visible=gradient_enabled),
+                                    gr.update(visible=gradient_enabled),
+                                    gr.update(
+                                        visible=not gradient_enabled
+                                    ),  # Hide colors 1&2 when gradient ON
+                                ),
+                                inputs=[apply_gradient_filter],
+                                outputs=[
+                                    gradient_strength,
+                                    variation_steps,
+                                    color_pickers_row_1_2,
+                                ],
+                            )
+
+                            # Visibility toggle for color quantization
+                            enable_color_quantization.change(
+                                fn=lambda enabled: (
+                                    gr.update(visible=enabled),
+                                    gr.update(visible=enabled),
+                                    gr.update(visible=enabled),
+                                    gr.update(visible=enabled),
+                                ),
+                                inputs=[enable_color_quantization],
+                                outputs=[
+                                    num_colors,
+                                    color_pickers_row_1_2,
+                                    color_pickers_row_3_4,
+                                    apply_gradient_filter,
+                                ],
+                            )
+
                             # Add seed controls
                             use_custom_seed = gr.Checkbox(
                                 label="Use Custom Seed",
@@ -2811,6 +3485,15 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         enable_freeu_standard,
                         controlnet_strength_standard_first,
                         controlnet_strength_standard_final,
+                        enable_color_quantization,
+                        num_colors,
+                        color_1,
+                        color_2,
+                        color_3,
+                        color_4,
+                        apply_gradient_filter,
+                        gradient_strength,
+                        variation_steps,
                     ],
                     outputs=[
                         output_image,
@@ -2839,6 +3522,15 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         enable_freeu_standard,
                         controlnet_strength_standard_first,
                         controlnet_strength_standard_final,
+                        enable_color_quantization,
+                        num_colors,
+                        color_1,
+                        color_2,
+                        color_3,
+                        color_4,
+                        apply_gradient_filter,
+                        gradient_strength,
+                        variation_steps,
                         import_status_standard,
                     ],
                 )
