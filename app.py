@@ -425,6 +425,7 @@ def compile_models_with_aoti():
             list(
                 _pipeline_standard(
                     prompt=TEST_PROMPT,
+                    negative_prompt="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
                     qr_text=TEST_TEXT,
                     input_type="URL",
                     image_size=512,
@@ -460,6 +461,7 @@ def compile_models_with_aoti():
             list(
                 _pipeline_artistic(
                     prompt=TEST_PROMPT,
+                    negative_prompt="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
                     qr_text=TEST_TEXT,
                     input_type="URL",
                     image_size=640,
@@ -513,6 +515,7 @@ def compile_models_with_aoti():
             list(
                 _pipeline_standard(
                     prompt=TEST_PROMPT,
+                    negative_prompt="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
                     qr_text=TEST_TEXT,
                     input_type="URL",
                     image_size=512,
@@ -533,6 +536,7 @@ def compile_models_with_aoti():
             list(
                 _pipeline_artistic(
                     prompt=TEST_PROMPT,
+                    negative_prompt="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
                     qr_text=TEST_TEXT,
                     input_type="URL",
                     image_size=640,
@@ -569,7 +573,8 @@ def compile_models_with_aoti():
 @spaces.GPU(duration=60)  # Reduced from 720s - AOTI compilation speeds up inference
 def generate_qr_code_unified(
     prompt: str,
-    text_input: str,
+    negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+    text_input: str = "",
     input_type: str = "URL",
     image_size: int = 512,
     border_size: int = 4,
@@ -616,60 +621,62 @@ def generate_qr_code_unified(
     with torch.inference_mode():
         if pipeline == "standard":
             yield from _pipeline_standard(
-                prompt,
-                qr_text,
-                input_type,
-                image_size,
-                border_size,
-                error_correction,
-                module_size,
-                module_drawer,
-                actual_seed,
-                enable_upscale,
-                controlnet_strength_standard_first,
-                controlnet_strength_standard_final,
-                enable_color_quantization,
-                num_colors,
-                color_1,
-                color_2,
-                color_3,
-                color_4,
-                apply_gradient_filter,
-                gradient_strength,
-                variation_steps,
-                progress,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                qr_text=qr_text,
+                input_type=input_type,
+                image_size=image_size,
+                border_size=border_size,
+                error_correction=error_correction,
+                module_size=module_size,
+                module_drawer=module_drawer,
+                seed=actual_seed,
+                enable_upscale=enable_upscale,
+                controlnet_strength_first=controlnet_strength_standard_first,
+                controlnet_strength_final=controlnet_strength_standard_final,
+                enable_color_quantization=enable_color_quantization,
+                num_colors=num_colors,
+                color_1=color_1,
+                color_2=color_2,
+                color_3=color_3,
+                color_4=color_4,
+                apply_gradient_filter=apply_gradient_filter,
+                gradient_strength=gradient_strength,
+                variation_steps=variation_steps,
+                gr_progress=progress,
             )
         else:  # artistic
             yield from _pipeline_artistic(
-                prompt,
-                qr_text,
-                input_type,
-                image_size,
-                border_size,
-                error_correction,
-                module_size,
-                module_drawer,
-                actual_seed,
-                enable_upscale,
-                freeu_b1,
-                freeu_b2,
-                freeu_s1,
-                freeu_s2,
-                enable_sag,
-                sag_scale,
-                sag_blur_sigma,
-                controlnet_strength_first,
-                controlnet_strength_final,
-                enable_color_quantization,
-                num_colors,
-                color_1,
-                color_2,
-                color_3,
-                color_4,
-                apply_gradient_filter,
-                gradient_strength,
-                variation_steps,
-                progress,
+                prompt=prompt,
+                negative_prompt=negative_prompt,
+                qr_text=qr_text,
+                input_type=input_type,
+                image_size=image_size,
+                border_size=border_size,
+                error_correction=error_correction,
+                module_size=module_size,
+                module_drawer=module_drawer,
+                seed=actual_seed,
+                enable_upscale=enable_upscale,
+                freeu_b1=freeu_b1,
+                freeu_b2=freeu_b2,
+                freeu_s1=freeu_s1,
+                freeu_s2=freeu_s2,
+                enable_sag=enable_sag,
+                sag_scale=sag_scale,
+                sag_blur_sigma=sag_blur_sigma,
+                controlnet_strength_first=controlnet_strength_first,
+                controlnet_strength_final=controlnet_strength_final,
+                enable_color_quantization=enable_color_quantization,
+                num_colors=num_colors,
+                color_1=color_1,
+                color_2=color_2,
+                color_3=color_3,
+                color_4=color_4,
+                apply_gradient_filter=apply_gradient_filter,
+                gradient_strength=gradient_strength,
+                variation_steps=variation_steps,
+                gr_progress=progress,
             )
 
 
@@ -864,7 +871,8 @@ def apply_color_quantization(
 
 def generate_standard_qr(
     prompt: str,
-    text_input: str,
+    negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+    text_input: str = "",
     input_type: str = "URL",
     image_size: int = 512,
     border_size: int = 4,
@@ -896,6 +904,7 @@ def generate_standard_qr(
     settings_dict = {
         "pipeline": "standard",
         "prompt": prompt,
+        "negative_prompt": negative_prompt,
         "text_input": text_input,
         "input_type": input_type,
         "image_size": image_size,
@@ -924,6 +933,7 @@ def generate_standard_qr(
     # Generate QR and yield progressive results
     generator = generate_qr_code_unified(
         prompt,
+        negative_prompt,
         text_input,
         input_type,
         image_size,
@@ -970,7 +980,8 @@ def generate_standard_qr(
 
 def generate_artistic_qr(
     prompt: str,
-    text_input: str,
+    negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+    text_input: str = "",
     input_type: str = "URL",
     image_size: int = 512,
     border_size: int = 4,
@@ -1009,6 +1020,7 @@ def generate_artistic_qr(
     settings_dict = {
         "pipeline": "artistic",
         "prompt": prompt,
+        "negative_prompt": negative_prompt,
         "text_input": text_input,
         "input_type": input_type,
         "image_size": image_size,
@@ -1044,6 +1056,7 @@ def generate_artistic_qr(
     # Generate QR and yield progressive results
     generator = generate_qr_code_unified(
         prompt,
+        negative_prompt,
         text_input,
         input_type,
         image_size,
@@ -1159,11 +1172,16 @@ def load_settings_from_json_standard(json_string: str):
                 gr.update(),
                 gr.update(),
                 gr.update(),
+                gr.update(),
                 gr.update(value=error_msg, visible=True),
             )
 
         # Extract parameters with defaults
         prompt = params.get("prompt", "")
+        negative_prompt = params.get(
+            "negative_prompt",
+            "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+        )
         text_input = params.get("text_input", "")
         input_type = params.get("input_type", "URL")
         image_size = params.get("image_size", 512)
@@ -1194,6 +1212,7 @@ def load_settings_from_json_standard(json_string: str):
         success_msg = "✅ Settings loaded successfully!"
         return (
             prompt,
+            negative_prompt,
             text_input,
             input_type,
             image_size,
@@ -1245,11 +1264,13 @@ def load_settings_from_json_standard(json_string: str):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
             gr.update(value=error_msg, visible=True),
         )
     except Exception as e:
         error_msg = f"❌ Error loading settings: {str(e)}"
         return (
+            gr.update(),
             gr.update(),
             gr.update(),
             gr.update(),
@@ -1320,11 +1341,16 @@ def load_settings_from_json_artistic(json_string: str):
                 gr.update(),
                 gr.update(),
                 gr.update(),
+                gr.update(),
                 gr.update(value=error_msg, visible=True),
             )
 
         # Extract parameters with defaults
         prompt = params.get("prompt", "")
+        negative_prompt = params.get(
+            "negative_prompt",
+            "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+        )
         text_input = params.get("text_input", "")
         input_type = params.get("input_type", "URL")
         image_size = params.get("image_size", 704)
@@ -1358,6 +1384,7 @@ def load_settings_from_json_artistic(json_string: str):
         success_msg = "✅ Settings loaded successfully!"
         return (
             prompt,
+            negative_prompt,
             text_input,
             input_type,
             image_size,
@@ -1423,11 +1450,13 @@ def load_settings_from_json_artistic(json_string: str):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
             gr.update(value=error_msg, visible=True),
         )
     except Exception as e:
         error_msg = f"❌ Error loading settings: {str(e)}"
         return (
+            gr.update(),
             gr.update(),
             gr.update(),
             gr.update(),
@@ -1554,14 +1583,15 @@ def add_noise_to_border_only(
 
 def _pipeline_standard(
     prompt: str,
-    qr_text: str,
-    input_type: str,
-    image_size: int,
-    border_size: int,
-    error_correction: str,
-    module_size: int,
-    module_drawer: str,
-    seed: int,
+    negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+    qr_text: str = "",
+    input_type: str = "URL",
+    image_size: int = 512,
+    border_size: int = 4,
+    error_correction: str = "Medium (15%)",
+    module_size: int = 12,
+    module_drawer: str = "Square",
+    seed: int = 0,
     enable_upscale: bool = False,
     controlnet_strength_first: float = 0.45,
     controlnet_strength_final: float = 1.0,
@@ -1586,7 +1616,7 @@ def _pipeline_standard(
     )
 
     cliptextencode_7 = cliptextencode.encode(
-        text="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+        text=negative_prompt,
         clip=get_value_at_index(checkpointloadersimple_4, 1),
     )
 
@@ -1829,14 +1859,15 @@ def _pipeline_standard(
 
 def _pipeline_artistic(
     prompt: str,
-    qr_text: str,
-    input_type: str,
-    image_size: int,
-    border_size: int,
-    error_correction: str,
-    module_size: int,
-    module_drawer: str,
-    seed: int,
+    negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+    qr_text: str = "",
+    input_type: str = "URL",
+    image_size: int = 640,
+    border_size: int = 4,
+    error_correction: str = "Medium (15%)",
+    module_size: int = 12,
+    module_drawer: str = "Square",
+    seed: int = 0,
     enable_upscale: bool = True,
     freeu_b1: float = 1.4,
     freeu_b2: float = 1.3,
@@ -1942,8 +1973,8 @@ def _pipeline_artistic(
         clip=get_value_at_index(checkpointloadersimple_artistic, 1),
     )
 
-    negative_prompt = cliptextencode.encode(
-        text="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+    negative_prompt_encoded = cliptextencode.encode(
+        text=negative_prompt,
         clip=get_value_at_index(checkpointloadersimple_artistic, 1),
     )
 
@@ -1962,7 +1993,7 @@ def _pipeline_artistic(
         start_percent=0,
         end_percent=1,
         positive=get_value_at_index(positive_prompt, 0),
-        negative=get_value_at_index(negative_prompt, 0),
+        negative=get_value_at_index(negative_prompt_encoded, 0),
         control_net=get_value_at_index(brightness_controlnet, 0),
         image=qr_with_border_noise,
         vae=get_value_at_index(checkpointloadersimple_artistic, 2),
@@ -2058,7 +2089,7 @@ def _pipeline_artistic(
         start_percent=0,
         end_percent=1,
         positive=get_value_at_index(positive_prompt, 0),
-        negative=get_value_at_index(negative_prompt, 0),
+        negative=get_value_at_index(negative_prompt_encoded, 0),
         control_net=get_value_at_index(tile_controlnet, 0),
         image=get_value_at_index(decoded, 0),
         vae=get_value_at_index(checkpointloadersimple_artistic, 2),
@@ -2263,6 +2294,15 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
                         # Change Settings Manually - separate accordion
                         with gr.Accordion("Change Settings Manually", open=False):
+                            # Negative Prompt
+                            negative_prompt_artistic = gr.Textbox(
+                                label="Negative Prompt",
+                                placeholder="Describe what you don't want in the image",
+                                value="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+                                lines=2,
+                                info="Keywords to avoid in the generated image",
+                            )
+
                             # Add image size slider for artistic QR
                             artistic_image_size = gr.Slider(
                                 minimum=512,
@@ -2627,6 +2667,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                     fn=generate_artistic_qr,
                     inputs=[
                         artistic_prompt_input,
+                        negative_prompt_artistic,
                         artistic_text_input,
                         artistic_input_type,
                         artistic_image_size,
@@ -2671,6 +2712,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                     inputs=[import_json_input_artistic],
                     outputs=[
                         artistic_prompt_input,
+                        negative_prompt_artistic,
                         artistic_text_input,
                         artistic_input_type,
                         artistic_image_size,
@@ -3171,6 +3213,15 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
                         # Change Settings Manually - separate accordion
                         with gr.Accordion("Change Settings Manually", open=False):
+                            # Negative Prompt
+                            negative_prompt_standard = gr.Textbox(
+                                label="Negative Prompt",
+                                placeholder="Describe what you don't want in the image",
+                                value="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+                                lines=2,
+                                info="Keywords to avoid in the generated image",
+                            )
+
                             # Add image size slider
                             image_size = gr.Slider(
                                 minimum=512,
@@ -3472,6 +3523,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                     fn=generate_standard_qr,
                     inputs=[
                         prompt_input,
+                        negative_prompt_standard,
                         text_input,
                         input_type,
                         image_size,
@@ -3509,6 +3561,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                     inputs=[import_json_input_standard],
                     outputs=[
                         prompt_input,
+                        negative_prompt_standard,
                         text_input,
                         input_type,
                         image_size,
