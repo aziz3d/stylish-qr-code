@@ -570,7 +570,7 @@ def compile_models_with_aoti():
             return False
 
 
-@spaces.GPU(duration=60)  # Reduced from 720s - AOTI compilation speeds up inference
+@spaces.GPU(duration=90)  # Reduced from 720s - AOTI compilation speeds up inference
 def generate_qr_code_unified(
     prompt: str,
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
