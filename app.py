@@ -1659,12 +1659,15 @@ def _pipeline_standard(
         yield None, error_msg
         return
 
+    # Calculate total steps based on enabled features
+    total_steps = 3 + (1 if enable_upscale else 0) + (1 if enable_color_quantization else 0)
+
     # 1) Yield the base QR image as the first intermediate result
     base_qr_tensor = get_value_at_index(comfy_qr_by_module_size_15, 0)
     base_qr_np = (base_qr_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
     base_qr_np = base_qr_np[0]
     base_qr_pil = Image.fromarray(base_qr_np)
-    msg = "Generated base QR pattern… enhancing with AI (step 1/3)"
+    msg = f"Generated base QR pattern… enhancing with AI (step 1/{total_steps})"
     log_progress(msg, gr_progress, 0.05)
     yield base_qr_pil, msg
 
@@ -1740,7 +1743,7 @@ def _pipeline_standard(
         mid_np = (mid_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         mid_np = mid_np[0]
         mid_pil = Image.fromarray(mid_np)
-        msg = "First enhancement pass complete (step 2/3)… refining details"
+        msg = f"First enhancement pass complete (step 2/{total_steps})… refining details"
         log_progress(msg, gr_progress, 0.5)
         yield mid_pil, msg
 
@@ -1804,7 +1807,8 @@ def _pipeline_standard(
             )
             pre_upscale_np = pre_upscale_np[0]
             pre_upscale_pil = Image.fromarray(pre_upscale_np)
-            msg = "Enhancement complete (step 3/4)... upscaling image"
+            current_step = 3
+            msg = f"Enhancement complete (step {current_step}/{total_steps})... upscaling image"
             log_progress(msg, gr_progress, 0.9)
             yield pre_upscale_pil, msg
 
@@ -1819,9 +1823,14 @@ def _pipeline_standard(
             image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
+            current_step += 1
 
             # Apply color quantization if enabled
             if enable_color_quantization:
+                msg = f"Upscaling complete (step {current_step}/{total_steps})... applying color quantization"
+                log_progress(msg, gr_progress, 0.95)
+                yield pil_image, msg
+
                 pil_image = apply_color_quantization(
                     pil_image,
                     colors=[color_1, color_2, color_3, color_4],
@@ -1830,8 +1839,9 @@ def _pipeline_standard(
                     gradient_strength=gradient_strength,
                     variation_steps=variation_steps,
                 )
+                current_step += 1
 
-            msg = "No errors, all good! Final QR art generated and upscaled. (step 4/4)"
+            msg = f"No errors, all good! Final QR art generated and upscaled. (step {current_step}/{total_steps})"
             log_progress(msg, gr_progress, 1.0)
             yield (pil_image, msg)
         else:
@@ -1840,9 +1850,14 @@ def _pipeline_standard(
             image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
             pil_image = Image.fromarray(image_np)
+            current_step = 3
 
             # Apply color quantization if enabled
             if enable_color_quantization:
+                msg = f"Enhancement complete (step {current_step}/{total_steps})... applying color quantization"
+                log_progress(msg, gr_progress, 0.95)
+                yield pil_image, msg
+
                 pil_image = apply_color_quantization(
                     pil_image,
                     colors=[color_1, color_2, color_3, color_4],
@@ -1851,8 +1866,9 @@ def _pipeline_standard(
                     gradient_strength=gradient_strength,
                     variation_steps=variation_steps,
                 )
+                current_step += 1
 
-            msg = "No errors, all good! Final QR art generated."
+            msg = f"No errors, all good! Final QR art generated. (step {current_step}/{total_steps})"
             log_progress(msg, gr_progress, 1.0)
             yield pil_image, msg
 
