@@ -577,12 +577,7 @@ def compile_models_with_aoti():
             return False
 
 
-def get_dynamic_duration(
-    pipeline: str,
-    image_size: int,
-    enable_animation: bool,
-    enable_upscale: bool,
-):
+def get_dynamic_duration(*args, **kwargs):
     """
     Calculate GPU duration based on benchmarks with 20% safety margin.
     Max duration capped at 120s (unauthenticated user limit).
@@ -591,6 +586,12 @@ def get_dynamic_duration(
     Standard: 512+anim=10s, 512-anim=7s, 832+anim=20s, 1024=40s
     Artistic: 640+anim=23s, 832+anim=45s, 832+anim+upscale=57s, 1024+anim+upscale=124s
     """
+    # Extract only the parameters we need from kwargs
+    pipeline = kwargs.get('pipeline', 'standard')
+    image_size = kwargs.get('image_size', 512)
+    enable_animation = kwargs.get('enable_animation', True)
+    enable_upscale = kwargs.get('enable_upscale', False)
+
     if pipeline == "standard":
         # Standard pipeline benchmarks (with 20% safety margin)
         if image_size <= 512:
