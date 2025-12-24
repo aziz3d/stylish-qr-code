@@ -577,7 +577,53 @@ def compile_models_with_aoti():
             return False
 
 
-@spaces.GPU(duration=120)  # Max duration for unauthenticated users
+def get_dynamic_duration(
+    pipeline: str,
+    image_size: int,
+    enable_animation: bool,
+    enable_upscale: bool,
+):
+    """
+    Calculate GPU duration based on benchmarks with 20% safety margin.
+    Max duration capped at 120s (unauthenticated user limit).
+
+    Benchmarks (actual measured times):
+    Standard: 512+anim=10s, 512-anim=7s, 832+anim=20s, 1024=40s
+    Artistic: 640+anim=23s, 832+anim=45s, 832+anim+upscale=57s, 1024+anim+upscale=124s
+    """
+    if pipeline == "standard":
+        # Standard pipeline benchmarks (with 20% safety margin)
+        if image_size <= 512:
+            duration = 12 if enable_animation else 9
+        elif image_size <= 640:
+            duration = 18 if enable_animation else 13
+        elif image_size <= 768:
+            duration = 21 if enable_animation else 15
+        elif image_size <= 832:
+            duration = 24 if enable_animation else 17
+        else:  # 1024
+            duration = 48 if enable_animation else 34
+    else:  # artistic
+        # Artistic pipeline benchmarks (with 20% safety margin)
+        if image_size <= 512:
+            # Extrapolated from 640 benchmark
+            duration = 22 if not enable_upscale else 35
+        elif image_size <= 640:
+            duration = 28 if not enable_upscale else 48
+        elif image_size <= 768:
+            # Interpolated between 640 and 832
+            duration = 40 if not enable_upscale else 58
+        elif image_size <= 832:
+            duration = 54 if not enable_upscale else 69
+        else:  # 1024
+            # Extrapolated from 832
+            duration = 72 if not enable_upscale else 120  # Worst case measured at 124s
+
+    # Cap at 120 seconds (unauthenticated user limit)
+    return min(duration, 120)
+
+
+@spaces.GPU(duration=get_dynamic_duration)  # Dynamic duration based on settings
 def generate_qr_code_unified(
     prompt: str,
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
@@ -2517,8 +2563,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         **GPU Quota Notice:**
         - **Unauthenticated users**: 120 seconds daily quota (~1 generation). Please log in for more usage.
         - **Free authenticated users**: 210 seconds daily quota (~3-5 generations depending on settings).
-        - **⚠️ Warning**: Large image sizes (1024px) may exceed quota even for a single generation! Use smaller sizes (512-768px) for better quota management.
-        - **💡 Tip**: Disable animation and upscaling in "Change Settings Manually" to reduce GPU time and maximize your quota.
+        - **⚠️ Warning**: Large image sizes (1024px) with upscaling can take 120+ seconds! Use smaller sizes (512-768px) for better quota management.
+        - **💡 Critical**: For large resolutions (832px+), **disable upscaling** to avoid exceeding quota. Upscaling has tremendous impact on GPU time.
+        - **💡 Tip**: Disable animation to save additional GPU time and maximize your quota.
 
         ### Tips:
         - Use detailed prompts for better results
