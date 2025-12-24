@@ -438,6 +438,7 @@ def compile_models_with_aoti():
                     module_drawer="Square",
                     seed=TEST_SEED,
                     enable_upscale=False,
+                    enable_animation=False,
                     controlnet_strength_first=1.5,
                     controlnet_strength_final=0.9,
                 )
@@ -474,6 +475,7 @@ def compile_models_with_aoti():
                     module_drawer="Square",
                     seed=TEST_SEED,
                     enable_upscale=False,
+                    enable_animation=False,
                     controlnet_strength_first=1.5,
                     controlnet_strength_final=0.9,
                     freeu_b1=1.3,
@@ -528,6 +530,7 @@ def compile_models_with_aoti():
                     module_drawer="Square",
                     seed=TEST_SEED,
                     enable_upscale=False,
+                    enable_animation=False,
                     controlnet_strength_first=1.5,
                     controlnet_strength_final=0.9,
                 )
@@ -549,6 +552,7 @@ def compile_models_with_aoti():
                     module_drawer="Square",
                     seed=TEST_SEED,
                     enable_upscale=False,
+                    enable_animation=False,
                     controlnet_strength_first=1.5,
                     controlnet_strength_final=0.9,
                     freeu_b1=1.3,
@@ -622,7 +626,7 @@ def generate_qr_code_unified(
     # Use custom seed or random
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
-    with torch.inference_mode():
+    with torch.no_grad():
         if pipeline == "standard":
             yield from _pipeline_standard(
                 prompt=prompt,
