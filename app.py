@@ -577,7 +577,7 @@ def compile_models_with_aoti():
             return False
 
 
-@spaces.GPU(duration=150)  # Allows time for animation frames during generation
+@spaces.GPU(duration=120)  # Max duration for unauthenticated users
 def generate_qr_code_unified(
     prompt: str,
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
@@ -1114,7 +1114,7 @@ def generate_artistic_qr(
     module_drawer: str = "Square",
     use_custom_seed: bool = False,
     seed: int = 0,
-    enable_upscale: bool = True,
+    enable_upscale: bool = False,
     enable_animation: bool = True,
     enable_freeu: bool = True,
     freeu_b1: float = 1.4,
@@ -1487,7 +1487,7 @@ def load_settings_from_json_artistic(json_string: str):
         module_drawer = params.get("module_drawer", "Square")
         use_custom_seed = params.get("use_custom_seed", True)
         seed = params.get("seed", 718313)
-        enable_upscale = params.get("enable_upscale", True)
+        enable_upscale = params.get("enable_upscale", False)
         enable_freeu = params.get("enable_freeu", True)
         freeu_b1 = params.get("freeu_b1", 1.4)
         freeu_b2 = params.get("freeu_b2", 1.3)
@@ -2514,6 +2514,12 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         **Privacy Notice:** Generated images are automatically deleted after 1 hour.
         Temporary files are checked and cleaned every hour. Download your QR codes promptly after generation.
 
+        **GPU Quota Notice:**
+        - **Unauthenticated users**: 120 seconds daily quota (~1 generation). Please log in for more usage.
+        - **Free authenticated users**: 210 seconds daily quota (~3-5 generations depending on settings).
+        - **⚠️ Warning**: Large image sizes (1024px) may exceed quota even for a single generation! Use smaller sizes (512-768px) for better quota management.
+        - **💡 Tip**: Disable animation and upscaling in "Change Settings Manually" to reduce GPU time and maximize your quota.
+
         ### Tips:
         - Use detailed prompts for better results
         - Include style keywords like 'photorealistic', 'detailed', '8k'
@@ -2521,11 +2527,11 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         - Try the examples below for inspiration
         - **Animation** (enabled by default): Shows intermediate generation steps every 5 steps. Disable for faster generation. (Available in "Change Settings Manually")
         - **Color Quantization** (disabled by default): Optional feature to specify a custom color scheme (2-4 colors) for your QR code. Perfect for matching brand colors or creating themed designs with gradient variations. (Available in "Change Settings Manually")
-        - **Upscale Image**: Enhances output quality with RealESRGAN (enabled by default in Artistic, disabled in Standard). (Available in "Change Settings Manually")
+        - **Upscale Image**: Enhances output quality with RealESRGAN (disabled by default to save GPU time). (Available in "Change Settings Manually")
         - **Copy/paste settings**: After generation, copy the JSON settings string that appears below the image and paste it into "Import Settings from JSON" to reproduce exact results or share with others
 
         ### Two Modes:
-        - **Artistic QR** (New pipeline, default): More artistic and creative results with upscaling (slower, more creative, less scannable)
+        - **Artistic QR** (New pipeline, default): More artistic and creative results with optional upscaling (slower, more creative, less scannable)
         - **Standard QR** (Old pipeline, more stable): Stable, accurate QR code generation (faster, more scannable, less creative)
 
         ### Note:
@@ -2716,8 +2722,8 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                             # Add upscale checkbox
                             artistic_enable_upscale = gr.Checkbox(
                                 label="Enable Upscaling",
-                                value=True,
-                                info="Enable upscaling with RealESRGAN for higher quality output (enabled by default for artistic pipeline)",
+                                value=False,
+                                info="Enable upscaling with RealESRGAN for higher quality output (disabled by default to reduce GPU time)",
                             )
 
                             # Animation toggle
