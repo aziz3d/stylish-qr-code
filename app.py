@@ -2565,7 +2565,8 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         - **Free authenticated users**: 210 seconds daily quota (~3-5 generations depending on settings).
         - **⚠️ Warning**: Large image sizes (1024px) with upscaling can take 120+ seconds! Use smaller sizes (512-768px) for better quota management.
         - **💡 Critical**: For large resolutions (832px+), **disable upscaling** to avoid exceeding quota. Upscaling has tremendous impact on GPU time.
-        - **💡 Tip**: Disable animation to save additional GPU time and maximize your quota.
+        - **✅ Recommended**: Default settings (512px, animation enabled, upscaling disabled) provide best balance - nice quality preview at ~10-12 seconds.
+        - **💡 Tip**: Disable animation to save ~20% GPU time and maximize your quota.
 
         ### Tips:
         - Use detailed prompts for better results
@@ -2573,13 +2574,13 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         - Choose **URL** mode for web links or **Plain Text** mode for VCARD, WiFi credentials, calendar events, etc.
         - Try the examples below for inspiration
         - **Animation** (enabled by default): Shows intermediate generation steps every 5 steps. Disable for faster generation. (Available in "Change Settings Manually")
-        - **Color Quantization** (disabled by default): Optional feature to specify a custom color scheme (2-4 colors) for your QR code. Perfect for matching brand colors or creating themed designs with gradient variations. (Available in "Change Settings Manually")
+        - **Color Quantization** (disabled by default): Optional feature to specify a custom color scheme (2-4 colors) for your QR code. Perfect for matching brand colors or creating themed designs with gradient variations. No GPU time impact. (Available in "Change Settings Manually")
         - **Upscale Image**: Enhances output quality with RealESRGAN (disabled by default to save GPU time). (Available in "Change Settings Manually")
         - **Copy/paste settings**: After generation, copy the JSON settings string that appears below the image and paste it into "Import Settings from JSON" to reproduce exact results or share with others
 
         ### Two Modes:
         - **Artistic QR** (New pipeline, default): More artistic and creative results with optional upscaling (slower, more creative, less scannable)
-        - **Standard QR** (Old pipeline, more stable): Stable, accurate QR code generation (faster, more scannable, less creative)
+        - **Standard QR** (Old pipeline, more stable): ~2x faster than Artistic, more scannable output but less creative results. Great for quota management!
 
         ### Note:
         Larger image sizes may take longer to generate.
