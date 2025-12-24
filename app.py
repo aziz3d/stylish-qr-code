@@ -1,5 +1,8 @@
 import os
 import sys
+import time
+import threading
+import queue
 
 # Force unbuffered output for real-time logging
 sys.stdout.reconfigure(line_buffering=True)
@@ -570,7 +573,7 @@ def compile_models_with_aoti():
             return False
 
 
-@spaces.GPU(duration=90)  # Reduced from 720s - AOTI compilation speeds up inference
+@spaces.GPU(duration=150)  # Allows time for animation frames during generation
 def generate_qr_code_unified(
     prompt: str,
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
@@ -605,6 +608,7 @@ def generate_qr_code_unified(
     apply_gradient_filter: bool = False,
     gradient_strength: float = 0.3,
     variation_steps: int = 5,
+    enable_animation: bool = True,
     progress=gr.Progress(),
 ):
     # Only manipulate the text if it's a URL input type
@@ -616,7 +620,7 @@ def generate_qr_code_unified(
             qr_text = qr_text.replace("http://", "")
 
     # Use custom seed or random
-    actual_seed = seed if use_custom_seed else random.randint(1, 2**64)
+    actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
     with torch.inference_mode():
         if pipeline == "standard":
@@ -643,6 +647,7 @@ def generate_qr_code_unified(
                 apply_gradient_filter=apply_gradient_filter,
                 gradient_strength=gradient_strength,
                 variation_steps=variation_steps,
+                enable_animation=enable_animation,
                 gr_progress=progress,
             )
         else:  # artistic
@@ -676,8 +681,122 @@ def generate_qr_code_unified(
                 apply_gradient_filter=apply_gradient_filter,
                 gradient_strength=gradient_strength,
                 variation_steps=variation_steps,
+                enable_animation=enable_animation,
                 gr_progress=progress,
             )
+
+
+class AnimationHandler:
+    """Handler for managing KSampler animation callbacks"""
+    def __init__(self, preview_size=512):
+        self.intermediate_images = []
+        self.image_queue = queue.Queue()
+        self.enabled = False
+        self.preview_size = preview_size  # Consistent preview size for all intermediate images
+
+    def create_callback(self, vae, interval=5):
+        """Create a callback that stores intermediate decoded images"""
+        last_step = [0]
+
+        def callback(step, x0, x, total_steps):
+            if not self.enabled:
+                return
+
+            # Only decode every 'interval' steps, but skip the very last step to avoid contaminating main pipeline
+            if (step - last_step[0]) >= interval and step < total_steps:
+                last_step[0] = step
+                try:
+                    # Use torch.no_grad() instead of inference_mode to avoid tensor contamination
+                    # Key insight: inference_mode tensors cannot be used in backward pass
+                    # Source: https://pytorch.org/docs/stable/generated/torch.autograd.grad_mode.inference_mode.html
+                    import torch
+                    with torch.no_grad():
+                        # Create a detached clone and ensure contiguous memory layout
+                        # .contiguous() ensures proper memory layout for VAE decoder
+                        x0_copy = x0.detach().clone().contiguous()
+
+                        # CRITICAL: Scale the latent for VAE decoding
+                        # SD1.5 uses scale_factor = 0.18215, so we divide by it
+                        # This converts from model sampling space to VAE decoding space
+                        x0_scaled = x0_copy / 0.18215
+
+                        # Decode - create full latent dict like KSampler output
+                        latent_dict = {"samples": x0_scaled}
+                        decoded = vaedecode.decode(samples=latent_dict, vae=vae)
+                        image_tensor = get_value_at_index(decoded, 0)
+
+                        # Convert EXACTLY like final images (lines 1915-1918) - no transpose, no mode
+                        image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
+                        image_np = image_np[0]
+                        pil_image = Image.fromarray(image_np)
+
+                        # Resize to consistent preview size to avoid size inconsistencies in UI
+                        if pil_image.size[0] > self.preview_size or pil_image.size[1] > self.preview_size:
+                            pil_image.thumbnail((self.preview_size, self.preview_size), Image.LANCZOS)
+
+                        # Store with message (step is already the correct value at interval points)
+                        msg = f"Sampling progress: step {step}/{total_steps}"
+                        self.intermediate_images.append((pil_image, msg))
+                        self.image_queue.put((pil_image, msg))
+                except Exception as e:
+                    print(f"Animation decode error: {e}")
+
+        return callback
+
+    def get_and_clear_images(self):
+        """Get all intermediate images and clear the buffer"""
+        images = self.intermediate_images.copy()
+        self.intermediate_images.clear()
+        return images
+
+
+def ksampler_with_animation(model, seed, steps, cfg, sampler_name, scheduler,
+                           positive, negative, latent_image, denoise=1.0,
+                           animation_handler=None, vae=None):
+    """
+    Custom KSampler that supports animation callbacks.
+    Based on ComfyUI's common_ksampler but with animation support.
+    """
+    import comfy.sample
+    import comfy.utils
+
+    # Prepare noise
+    latent = latent_image
+    latent_image_data = latent["samples"]
+    latent_image_data = comfy.sample.fix_empty_latent_channels(model, latent_image_data)
+
+    batch_inds = latent["batch_index"] if "batch_index" in latent else None
+    noise = comfy.sample.prepare_noise(latent_image_data, seed, batch_inds)
+
+    noise_mask = None
+    if "noise_mask" in latent:
+        noise_mask = latent["noise_mask"]
+
+    # Create animation callback once before sampling (not on every step!)
+    callback_fn = None
+    if animation_handler and animation_handler.enabled and vae:
+        callback_fn = animation_handler.create_callback(vae)
+
+    def animation_callback(step, x0, x, total_steps):
+        # Call animation callback if enabled
+        if callback_fn:
+            callback_fn(step, x0, x, total_steps)
+
+    disable_pbar = not comfy.utils.PROGRESS_BAR_ENABLED
+
+    # Sample
+    samples = comfy.sample.sample(
+        model, noise, steps, cfg, sampler_name, scheduler,
+        positive, negative, latent_image_data,
+        denoise=denoise, disable_noise=False, start_step=None,
+        last_step=None, force_full_denoise=False,
+        noise_mask=noise_mask, callback=animation_callback,
+        disable_pbar=disable_pbar, seed=seed
+    )
+
+    out = latent.copy()
+    out["samples"] = samples
+    return (out,)
 
 
 def apply_color_quantization(
@@ -882,7 +1001,7 @@ def generate_standard_qr(
     use_custom_seed: bool = False,
     seed: int = 0,
     enable_upscale: bool = False,
-    enable_freeu: bool = False,
+    enable_animation: bool = True,
     controlnet_strength_standard_first: float = 0.45,
     controlnet_strength_standard_final: float = 1.0,
     enable_color_quantization: bool = False,
@@ -898,7 +1017,7 @@ def generate_standard_qr(
 ):
     """Wrapper function for standard QR generation"""
     # Get actual seed used (custom or random)
-    actual_seed = seed if use_custom_seed else random.randint(1, 2**64)
+    actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
     # Create settings JSON once
     settings_dict = {
@@ -915,7 +1034,7 @@ def generate_standard_qr(
         "seed": actual_seed,
         "use_custom_seed": True,
         "enable_upscale": enable_upscale,
-        "enable_freeu": enable_freeu,
+        "enable_animation": enable_animation,
         "controlnet_strength_standard_first": controlnet_strength_standard_first,
         "controlnet_strength_standard_final": controlnet_strength_standard_final,
         "enable_color_quantization": enable_color_quantization,
@@ -945,6 +1064,7 @@ def generate_standard_qr(
         seed,
         pipeline="standard",
         enable_upscale=enable_upscale,
+        enable_animation=enable_animation,
         controlnet_strength_standard_first=controlnet_strength_standard_first,
         controlnet_strength_standard_final=controlnet_strength_standard_final,
         enable_color_quantization=enable_color_quantization,
@@ -991,6 +1111,7 @@ def generate_artistic_qr(
     use_custom_seed: bool = False,
     seed: int = 0,
     enable_upscale: bool = True,
+    enable_animation: bool = True,
     enable_freeu: bool = True,
     freeu_b1: float = 1.4,
     freeu_b2: float = 1.3,
@@ -1014,7 +1135,7 @@ def generate_artistic_qr(
 ):
     """Wrapper function for artistic QR generation with FreeU and SAG parameters"""
     # Get actual seed used (custom or random)
-    actual_seed = seed if use_custom_seed else random.randint(1, 2**64)
+    actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
     # Create settings JSON once
     settings_dict = {
@@ -1031,6 +1152,7 @@ def generate_artistic_qr(
         "seed": actual_seed,
         "use_custom_seed": True,
         "enable_upscale": enable_upscale,
+        "enable_animation": enable_animation,
         "enable_freeu": enable_freeu,
         "freeu_b1": freeu_b1,
         "freeu_b2": freeu_b2,
@@ -1086,6 +1208,7 @@ def generate_artistic_qr(
         apply_gradient_filter=apply_gradient_filter,
         gradient_strength=gradient_strength,
         variation_steps=variation_steps,
+        enable_animation=enable_animation,
         progress=progress,
     )
 
@@ -1192,7 +1315,7 @@ def load_settings_from_json_standard(json_string: str):
         use_custom_seed = params.get("use_custom_seed", True)
         seed = params.get("seed", 718313)
         enable_upscale = params.get("enable_upscale", False)
-        enable_freeu = params.get("enable_freeu", False)
+        enable_animation = params.get("enable_animation", True)
         controlnet_strength_standard_first = params.get(
             "controlnet_strength_standard_first", 0.45
         )
@@ -1223,7 +1346,7 @@ def load_settings_from_json_standard(json_string: str):
             use_custom_seed,
             seed,
             enable_upscale,
-            enable_freeu,
+            enable_animation,
             controlnet_strength_standard_first,
             controlnet_strength_standard_final,
             enable_color_quantization,
@@ -1604,8 +1727,14 @@ def _pipeline_standard(
     apply_gradient_filter: bool = False,
     gradient_strength: float = 0.3,
     variation_steps: int = 5,
+    enable_animation: bool = True,
     gr_progress=None,
 ):
+    # Initialize animation handler if enabled
+    animation_handler = AnimationHandler(preview_size=image_size) if enable_animation else None
+    if animation_handler:
+        animation_handler.enabled = True
+
     emptylatentimage_5 = emptylatentimage.generate(
         width=image_size, height=image_size, batch_size=1
     )
@@ -1711,18 +1840,52 @@ def _pipeline_standard(
             vae=get_value_at_index(checkpointloadersimple_4, 2),
         )
 
-        ksampler_3 = ksampler.sample(
-            seed=seed,
-            steps=20,
-            cfg=7,
-            sampler_name="dpmpp_2m",
-            scheduler="karras",
-            denoise=1,
-            model=get_value_at_index(checkpointloadersimple_4, 0),
-            positive=get_value_at_index(controlnetapplyadvanced_13, 0),
-            negative=get_value_at_index(controlnetapplyadvanced_13, 1),
-            latent_image=get_value_at_index(emptylatentimage_5, 0),
-        )
+        # Use animation-enabled sampler if requested
+        if animation_handler and enable_animation:
+            # Run ksampler in thread to allow real-time image yielding
+            result_container = [None]
+            def run_ksampler():
+                result_container[0] = ksampler_with_animation(
+                    model=get_value_at_index(checkpointloadersimple_4, 0),
+                    seed=seed,
+                    steps=20,
+                    cfg=7,
+                    sampler_name="dpmpp_2m",
+                    scheduler="karras",
+                    positive=get_value_at_index(controlnetapplyadvanced_13, 0),
+                    negative=get_value_at_index(controlnetapplyadvanced_13, 1),
+                    latent_image=get_value_at_index(emptylatentimage_5, 0),
+                    denoise=1,
+                    animation_handler=animation_handler,
+                    vae=get_value_at_index(checkpointloadersimple_4, 2),
+                )
+
+            ksampler_thread = threading.Thread(target=run_ksampler)
+            ksampler_thread.start()
+
+            # Yield intermediate images as they're captured
+            while ksampler_thread.is_alive() or not animation_handler.image_queue.empty():
+                try:
+                    img, msg = animation_handler.image_queue.get(timeout=0.1)
+                    yield img, msg
+                except queue.Empty:
+                    pass
+
+            ksampler_thread.join()
+            ksampler_3 = result_container[0]
+        else:
+            ksampler_3 = ksampler.sample(
+                seed=seed,
+                steps=20,
+                cfg=7,
+                sampler_name="dpmpp_2m",
+                scheduler="karras",
+                denoise=1,
+                model=get_value_at_index(checkpointloadersimple_4, 0),
+                positive=get_value_at_index(controlnetapplyadvanced_13, 0),
+                negative=get_value_at_index(controlnetapplyadvanced_13, 1),
+                latent_image=get_value_at_index(emptylatentimage_5, 0),
+            )
 
         # Yield progress update after first sampling completes
         msg = "First pass sampling complete... decoding image"
@@ -1764,18 +1927,52 @@ def _pipeline_standard(
             vae=get_value_at_index(checkpointloadersimple_4, 2),
         )
 
-        ksampler_18 = ksampler.sample(
-            seed=seed + 1,
-            steps=20,
-            cfg=7,
-            sampler_name="dpmpp_2m",
-            scheduler="karras",
-            denoise=1,
-            model=get_value_at_index(checkpointloadersimple_4, 0),
-            positive=get_value_at_index(controlnetapplyadvanced_20, 0),
-            negative=get_value_at_index(controlnetapplyadvanced_20, 1),
-            latent_image=get_value_at_index(emptylatentimage_17, 0),
-        )
+        # Use animation-enabled sampler if requested
+        if animation_handler and enable_animation:
+            # Run ksampler in thread to allow real-time image yielding
+            result_container = [None]
+            def run_ksampler():
+                result_container[0] = ksampler_with_animation(
+                    model=get_value_at_index(checkpointloadersimple_4, 0),
+                    seed=seed + 1,
+                    steps=20,
+                    cfg=7,
+                    sampler_name="dpmpp_2m",
+                    scheduler="karras",
+                    positive=get_value_at_index(controlnetapplyadvanced_20, 0),
+                    negative=get_value_at_index(controlnetapplyadvanced_20, 1),
+                    latent_image=get_value_at_index(emptylatentimage_17, 0),
+                    denoise=1,
+                    animation_handler=animation_handler,
+                    vae=get_value_at_index(checkpointloadersimple_4, 2),
+                )
+
+            ksampler_thread = threading.Thread(target=run_ksampler)
+            ksampler_thread.start()
+
+            # Yield intermediate images as they're captured
+            while ksampler_thread.is_alive() or not animation_handler.image_queue.empty():
+                try:
+                    img, msg = animation_handler.image_queue.get(timeout=0.1)
+                    yield img, msg
+                except queue.Empty:
+                    pass
+
+            ksampler_thread.join()
+            ksampler_18 = result_container[0]
+        else:
+            ksampler_18 = ksampler.sample(
+                seed=seed + 1,
+                steps=20,
+                cfg=7,
+                sampler_name="dpmpp_2m",
+                scheduler="karras",
+                denoise=1,
+                model=get_value_at_index(checkpointloadersimple_4, 0),
+                positive=get_value_at_index(controlnetapplyadvanced_20, 0),
+                negative=get_value_at_index(controlnetapplyadvanced_20, 1),
+                latent_image=get_value_at_index(emptylatentimage_17, 0),
+            )
 
         # Yield progress update after second sampling completes
         msg = "Second pass sampling complete... decoding final image"
@@ -1903,8 +2100,14 @@ def _pipeline_artistic(
     apply_gradient_filter: bool = False,
     gradient_strength: float = 0.3,
     variation_steps: int = 5,
+    enable_animation: bool = True,
     gr_progress=None,
 ):
+    # Initialize animation handler if enabled
+    animation_handler = AnimationHandler(preview_size=image_size) if enable_animation else None
+    if animation_handler:
+        animation_handler.enabled = True
+
     # Generate QR code
     qr_protocol = "None" if input_type == "Plain Text" else "Https"
 
@@ -2060,18 +2263,52 @@ def _pipeline_artistic(
     # First sampling pass
     log_progress("First pass - artistic sampling...", gr_progress, 0.2)
 
-    samples = ksampler.sample(
-        seed=seed,
-        steps=30,
-        cfg=7,
-        sampler_name="dpmpp_3m_sde",
-        scheduler="karras",
-        denoise=1,
-        model=enhanced_model,  # Using FreeU + SAG enhanced model
-        positive=get_value_at_index(controlnet_apply, 0),
-        negative=get_value_at_index(controlnet_apply, 1),
-        latent_image=get_value_at_index(latent_image, 0),
-    )
+    # Use animation-enabled sampler if requested
+    if animation_handler and enable_animation:
+        # Run ksampler in thread to allow real-time image yielding
+        result_container = [None]
+        def run_ksampler():
+            result_container[0] = ksampler_with_animation(
+                model=enhanced_model,  # Using FreeU + SAG enhanced model
+                seed=seed,
+                steps=30,
+                cfg=7,
+                sampler_name="dpmpp_3m_sde",
+                scheduler="karras",
+                positive=get_value_at_index(controlnet_apply, 0),
+                negative=get_value_at_index(controlnet_apply, 1),
+                latent_image=get_value_at_index(latent_image, 0),
+                denoise=1,
+                animation_handler=animation_handler,
+                vae=get_value_at_index(checkpointloadersimple_artistic, 2),
+            )
+
+        ksampler_thread = threading.Thread(target=run_ksampler)
+        ksampler_thread.start()
+
+        # Yield intermediate images as they're captured
+        while ksampler_thread.is_alive() or not animation_handler.image_queue.empty():
+            try:
+                img, msg = animation_handler.image_queue.get(timeout=0.1)
+                yield (img, msg)
+            except queue.Empty:
+                pass
+
+        ksampler_thread.join()
+        samples = result_container[0]
+    else:
+        samples = ksampler.sample(
+            seed=seed,
+            steps=30,
+            cfg=7,
+            sampler_name="dpmpp_3m_sde",
+            scheduler="karras",
+            denoise=1,
+            model=enhanced_model,  # Using FreeU + SAG enhanced model
+            positive=get_value_at_index(controlnet_apply, 0),
+            negative=get_value_at_index(controlnet_apply, 1),
+            latent_image=get_value_at_index(latent_image, 0),
+        )
 
     # Yield progress update after first sampling completes
     msg = f"First pass sampling complete... decoding image (step {current_step}/{total_steps})"
@@ -2121,18 +2358,52 @@ def _pipeline_artistic(
     # Final sampling pass
     log_progress("Second pass (refinement)...", gr_progress, 0.6)
 
-    final_samples = ksampler.sample(
-        seed=seed + 1,
-        steps=30,
-        cfg=7,
-        sampler_name="dpmpp_3m_sde",
-        scheduler="karras",
-        denoise=0.8,
-        model=enhanced_model,  # Using FreeU + SAG enhanced model
-        positive=get_value_at_index(controlnet_apply_final, 0),
-        negative=get_value_at_index(controlnet_apply_final, 1),
-        latent_image=get_value_at_index(upscaled_latent, 0),
-    )
+    # Use animation-enabled sampler if requested
+    if animation_handler and enable_animation:
+        # Run ksampler in thread to allow real-time image yielding
+        result_container = [None]
+        def run_ksampler():
+            result_container[0] = ksampler_with_animation(
+                model=enhanced_model,  # Using FreeU + SAG enhanced model
+                seed=seed + 1,
+                steps=30,
+                cfg=7,
+                sampler_name="dpmpp_3m_sde",
+                scheduler="karras",
+                positive=get_value_at_index(controlnet_apply_final, 0),
+                negative=get_value_at_index(controlnet_apply_final, 1),
+                latent_image=get_value_at_index(upscaled_latent, 0),
+                denoise=0.8,
+                animation_handler=animation_handler,
+                vae=get_value_at_index(checkpointloadersimple_artistic, 2),
+            )
+
+        ksampler_thread = threading.Thread(target=run_ksampler)
+        ksampler_thread.start()
+
+        # Yield intermediate images as they're captured
+        while ksampler_thread.is_alive() or not animation_handler.image_queue.empty():
+            try:
+                img, msg = animation_handler.image_queue.get(timeout=0.1)
+                yield (img, msg)
+            except queue.Empty:
+                pass
+
+        ksampler_thread.join()
+        final_samples = result_container[0]
+    else:
+        final_samples = ksampler.sample(
+            seed=seed + 1,
+            steps=30,
+            cfg=7,
+            sampler_name="dpmpp_3m_sde",
+            scheduler="karras",
+            denoise=0.8,
+            model=enhanced_model,  # Using FreeU + SAG enhanced model
+            positive=get_value_at_index(controlnet_apply_final, 0),
+            negative=get_value_at_index(controlnet_apply_final, 1),
+            latent_image=get_value_at_index(upscaled_latent, 0),
+        )
 
     # Yield progress update after second sampling completes
     msg = f"Second pass sampling complete... decoding final image (step {current_step}/{total_steps})"
@@ -2244,6 +2515,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         - Include style keywords like 'photorealistic', 'detailed', '8k'
         - Choose **URL** mode for web links or **Plain Text** mode for VCARD, WiFi credentials, calendar events, etc.
         - Try the examples below for inspiration
+        - **Animation** (enabled by default): Shows intermediate generation steps every 5 steps. Disable for faster generation. (Available in "Change Settings Manually")
+        - **Color Quantization** (disabled by default): Optional feature to specify a custom color scheme (2-4 colors) for your QR code. Perfect for matching brand colors or creating themed designs with gradient variations. (Available in "Change Settings Manually")
+        - **Upscale Image**: Enhances output quality with RealESRGAN (enabled by default in Artistic, disabled in Standard). (Available in "Change Settings Manually")
         - **Copy/paste settings**: After generation, copy the JSON settings string that appears below the image and paste it into "Import Settings from JSON" to reproduce exact results or share with others
 
         ### Two Modes:
@@ -2274,13 +2548,13 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         artistic_prompt_input = gr.Textbox(
                             label="Prompt",
                             placeholder="Describe the image you want to generate (check examples below for inspiration)",
-                            value="Enter your prompt here... For example: 'a beautiful sunset over mountains, photorealistic, detailed landscape'",
+                            value="some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
                             lines=3,
                         )
                         artistic_text_input = gr.Textbox(
                             label="QR Code Content",
                             placeholder="Enter URL or plain text",
-                            value="Enter your URL or text here... For example: https://github.com",
+                            value="https://www.google.com",
                             lines=3,
                         )
 
@@ -2310,6 +2584,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
                         # Change Settings Manually - separate accordion
                         with gr.Accordion("Change Settings Manually", open=False):
+                            gr.Markdown("**Advanced controls including:** Animation toggle, Color Quantization, FreeU/SAG parameters, ControlNet strength, QR settings, and more.")
                             # Negative Prompt
                             negative_prompt_artistic = gr.Textbox(
                                 label="Negative Prompt",
@@ -2324,9 +2599,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                                 minimum=512,
                                 maximum=1024,
                                 step=64,
-                                value=704,
+                                value=640,
                                 label="Image Size",
-                                info="Base size of the generated image. Final output will be 2x this size (e.g., 704 → 1408) due to the two-step enhancement process. Higher values use more VRAM and take longer to process.",
+                                info="Base size of the generated image. Final output will be 2x this size (e.g., 640 → 1280) due to the two-step enhancement process. Higher values use more VRAM and take longer to process.",
                             )
 
                             # Add border size slider for artistic QR
@@ -2347,7 +2622,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                                     "Quartile (25%)",
                                     "High (30%)",
                                 ],
-                                value="High (30%)",
+                                value="Medium (15%)",
                                 label="Error Correction Level",
                                 info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. High (30%) is recommended for artistic QR codes.",
                             )
@@ -2357,16 +2632,16 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                                 minimum=4,
                                 maximum=16,
                                 step=1,
-                                value=16,
+                                value=14,
                                 label="QR Module Size",
-                                info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 16 is a good starting point.",
+                                info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 14 is a good starting point.",
                             )
 
                             # Add module drawer dropdown with style examples for artistic QR
                             artistic_module_drawer = gr.Dropdown(
                                 choices=[
                                     "Square",
-                                    "Gapped Square",
+                                    "Gapped square",
                                     "Circle",
                                     "Rounded",
                                     "Vertical bars",
@@ -2441,8 +2716,16 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                                 info="Enable upscaling with RealESRGAN for higher quality output (enabled by default for artistic pipeline)",
                             )
 
+                            # Animation toggle
+                            artistic_enable_animation = gr.Checkbox(
+                                label="Enable Animation (Show KSampler Progress)",
+                                value=True,
+                                info="Shows intermediate images every 5 steps during generation. Disable for faster generation.",
+                            )
+
                             # Color Quantization Section
                             gr.Markdown("### Color Quantization (Optional)")
+                            gr.Markdown("Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs.")
                             artistic_enable_color_quantization = gr.Checkbox(
                                 label="Enable Color Quantization",
                                 value=False,
@@ -2556,7 +2839,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                             )
                             artistic_seed = gr.Slider(
                                 minimum=0,
-                                maximum=2000000,
+                                maximum=2**32 - 1,
                                 step=1,
                                 value=718313,
                                 label="Seed",
@@ -2694,6 +2977,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         artistic_use_custom_seed,
                         artistic_seed,
                         artistic_enable_upscale,
+                        artistic_enable_animation,
                         enable_freeu_artistic,
                         freeu_b1,
                         freeu_b2,
@@ -2739,6 +3023,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         artistic_use_custom_seed,
                         artistic_seed,
                         artistic_enable_upscale,
+                        artistic_enable_animation,
                         enable_freeu_artistic,
                         freeu_b1,
                         freeu_b2,
@@ -3193,13 +3478,13 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         prompt_input = gr.Textbox(
                             label="Prompt",
                             placeholder="Describe the image you want to generate (check examples below for inspiration)",
-                            value="Enter your prompt here... For example: 'a beautiful sunset over mountains, photorealistic, detailed landscape'",
+                            value="some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
                             lines=3,
                         )
                         text_input = gr.Textbox(
                             label="QR Code Content",
                             placeholder="Enter URL or plain text",
-                            value="Enter your URL or text here... For example: https://github.com",
+                            value="https://www.google.com",
                             lines=3,
                         )
 
@@ -3229,6 +3514,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
                         # Change Settings Manually - separate accordion
                         with gr.Accordion("Change Settings Manually", open=False):
+                            gr.Markdown("**Advanced controls including:** Animation toggle, Color Quantization, ControlNet strength, QR settings, and more.")
                             # Negative Prompt
                             negative_prompt_standard = gr.Textbox(
                                 label="Negative Prompt",
@@ -3285,7 +3571,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                             module_drawer = gr.Dropdown(
                                 choices=[
                                     "Square",
-                                    "Gapped Square",
+                                    "Gapped square",
                                     "Circle",
                                     "Rounded",
                                     "Vertical bars",
@@ -3360,15 +3646,16 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                                 info="Enable upscaling with RealESRGAN for higher quality output (disabled by default for standard pipeline)",
                             )
 
-                            # Add FreeU checkbox
-                            enable_freeu_standard = gr.Checkbox(
-                                label="Enable FreeU",
-                                value=False,
-                                info="Enable FreeU quality enhancement (disabled by default for standard pipeline)",
+                            # Animation toggle
+                            enable_animation = gr.Checkbox(
+                                label="Enable Animation (Show KSampler Progress)",
+                                value=True,
+                                info="Shows intermediate images every 5 steps during generation. Disable for faster generation.",
                             )
 
                             # Color Quantization Section
                             gr.Markdown("### Color Quantization (Optional)")
+                            gr.Markdown("Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs.")
                             enable_color_quantization = gr.Checkbox(
                                 label="Enable Color Quantization",
                                 value=False,
@@ -3478,7 +3765,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                             )
                             seed = gr.Slider(
                                 minimum=0,
-                                maximum=2000000,
+                                maximum=2**32 - 1,
                                 step=1,
                                 value=718313,
                                 label="Seed",
@@ -3550,7 +3837,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         use_custom_seed,
                         seed,
                         enable_upscale,
-                        enable_freeu_standard,
+                        enable_animation,
                         controlnet_strength_standard_first,
                         controlnet_strength_standard_final,
                         enable_color_quantization,
@@ -3569,6 +3856,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         settings_output_standard,
                         settings_accordion_standard,
                     ],
+                    show_progress="full",
                 )
 
                 # Load Settings button event handler
@@ -3588,7 +3876,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         use_custom_seed,
                         seed,
                         enable_upscale,
-                        enable_freeu_standard,
+                        enable_animation,
                         controlnet_strength_standard_first,
                         controlnet_strength_standard_final,
                         enable_color_quantization,
