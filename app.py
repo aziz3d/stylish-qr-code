@@ -2562,12 +2562,12 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         Temporary files are checked and cleaned every hour. Download your QR codes promptly after generation.
 
         **GPU Quota Notice:**
-        - **Unauthenticated users**: 120 seconds daily quota (~1 generation). Please log in for more usage.
-        - **Free authenticated users**: 210 seconds daily quota (~3-5 generations depending on settings).
-        - **⚠️ Warning**: Large image sizes (1024px) with upscaling can take 120+ seconds! Use smaller sizes (512-768px) for better quota management.
-        - **💡 Critical**: For large resolutions (832px+), **disable upscaling** to avoid exceeding quota. Upscaling has tremendous impact on GPU time.
-        - **✅ Recommended**: Default settings (512px, animation enabled, upscaling disabled) provide best balance - nice quality preview at ~10-12 seconds.
-        - **💡 Tip**: Disable animation to save ~20% GPU time and maximize your quota.
+        - **Unauthenticated users**: 120 seconds daily GPU quota - that's **~6 artistic generations per day** with default settings!
+        - **Free authenticated users**: 210 seconds daily GPU quota - that's **~10 artistic generations per day**, or more with optimizations.
+        - **✅ Recommended**: Default settings (512px, animation enabled, upscaling disabled) use ~20 seconds per generation.
+        - **💡 GPU time varies greatly**: 512px default = ~20s, 1024px with upscaling = ~120s (worst case).
+        - **Save quota tips**: Use Standard QR pipeline (~2x faster than Artistic), disable animation (saves ~20%), avoid upscaling except for final outputs.
+        - **⚠️ For large images (832px+)**: Always disable upscaling to conserve quota. Upscaling has tremendous impact on GPU time.
 
         ### Tips:
         - Use detailed prompts for better results
