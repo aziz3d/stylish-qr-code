@@ -2801,7 +2801,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                 with gr.Accordion("📖 Full Documentation & Tips", open=False):
                     gr.Markdown("""
                     ### About Artistic QR Pipeline
-                    The Artistic pipeline uses FLUX.1-dev to create highly creative, photorealistic QR codes. This pipeline offers:
+                    The Artistic pipeline creates highly creative, photorealistic QR codes. This pipeline offers:
                     - More artistic freedom and creative results
                     - Optional upscaling with RealESRGAN
                     - FreeU and SAG (Self-Attention Guidance) for enhanced quality
@@ -3481,7 +3481,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
                     ### Comparison with Artistic:
                     - **Standard**: Faster, more scannable, less creative
-                    - **Artistic**: Slower, more creative, photorealistic (uses FLUX.1-dev)
+                    - **Artistic**: Slower, more creative, photorealistic
 
                     Choose Standard when you need speed and guaranteed scannability!
                     """)
