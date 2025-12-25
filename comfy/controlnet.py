@@ -270,6 +270,11 @@ class ControlNet(ControlBase):
         timestep = self.model_sampling_current.timestep(t)
         x_noisy = self.model_sampling_current.calculate_input(t, x_noisy)
 
+        # Ensure control_model is on same device as input tensors (fixes MPS device error)
+        target_device = x_noisy.device
+        if self.control_model.device != target_device:
+            self.control_model.to(target_device)
+
         control = self.control_model(x=x_noisy.to(dtype), hint=self.cond_hint, timesteps=timestep.to(dtype), context=context.to(dtype), **extra)
         return self.control_merge(control, control_prev, output_dtype=None)
 

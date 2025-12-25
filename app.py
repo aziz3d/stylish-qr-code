@@ -579,12 +579,14 @@ def compile_models_with_aoti():
 
 def get_dynamic_duration(*args, **kwargs):
     """
-    Calculate GPU duration based on benchmarks with 20% safety margin.
+    Calculate GPU duration based on benchmarks with 30-40% safety margin.
     Max duration capped at 120s (unauthenticated user limit).
 
     Benchmarks (actual measured times):
     Standard: 512+anim=10s, 512-anim=7s, 832+anim=20s, 1024=40s
     Artistic: 640+anim=23s, 832+anim=45s, 832+anim+upscale=57s, 1024+anim+upscale=124s
+
+    Updated with larger margins for complex examples (rice fields, poker, meditation garden).
     """
     # Extract only the parameters we need from kwargs
     pipeline = kwargs.get("pipeline", "standard")
@@ -593,32 +595,32 @@ def get_dynamic_duration(*args, **kwargs):
     enable_upscale = kwargs.get("enable_upscale", False)
 
     if pipeline == "standard":
-        # Standard pipeline benchmarks (with 20% safety margin)
+        # Standard pipeline benchmarks (with 30% safety margin)
         if image_size <= 512:
-            duration = 12 if enable_animation else 9
+            duration = 13 if enable_animation else 10
         elif image_size <= 640:
-            duration = 18 if enable_animation else 13
+            duration = 20 if enable_animation else 15
         elif image_size <= 768:
-            duration = 21 if enable_animation else 15
+            duration = 25 if enable_animation else 18
         elif image_size <= 832:
-            duration = 24 if enable_animation else 17
+            duration = 30 if enable_animation else 22  # Increased for 832px
         else:  # 1024
-            duration = 48 if enable_animation else 34
+            duration = 52 if enable_animation else 38
     else:  # artistic
-        # Artistic pipeline benchmarks (with 20% safety margin)
+        # Artistic pipeline benchmarks (with 35% safety margin for complex prompts)
         if image_size <= 512:
             # Extrapolated from 640 benchmark
-            duration = 22 if not enable_upscale else 35
+            duration = 25 if not enable_upscale else 38
         elif image_size <= 640:
-            duration = 28 if not enable_upscale else 48
+            duration = 35 if not enable_upscale else 52
         elif image_size <= 768:
-            # Interpolated between 640 and 832
-            duration = 40 if not enable_upscale else 58
+            # Increased for complex examples (poker, rice fields at 704-768)
+            duration = 50 if not enable_upscale else 68
         elif image_size <= 832:
-            duration = 54 if not enable_upscale else 69
+            duration = 65 if not enable_upscale else 82
         else:  # 1024
-            # Extrapolated from 832
-            duration = 72 if not enable_upscale else 120  # Worst case measured at 124s
+            # Increased for complex examples (mediterranean garden at 1024)
+            duration = 90 if not enable_upscale else 120  # Worst case measured at 124s
 
     # Cap at 120 seconds (unauthenticated user limit)
     return min(duration, 120)
@@ -1299,20 +1301,42 @@ def generate_artistic_qr(
 
     final_image = None
     final_status = None
+    first_yield = True
 
     for image, status in generator:
         final_image = image
         final_status = status
         # Show progressive updates but don't show accordion yet
-        yield (image, status, gr.update(), gr.update())
+        # On first yield, hide gallery and show output components
+        if first_yield:
+            yield (
+                gr.update(visible=True, value=image),  # Show output image
+                status,
+                gr.update(),  # Settings (no change yet)
+                gr.update(),  # Accordion (no change yet)
+                gr.update(visible=False),  # Hide gallery
+                gr.update(visible=False),  # Hide show examples button during generation
+            )
+            first_yield = False
+        else:
+            yield (
+                image,  # Update image
+                status,
+                gr.update(),  # Settings (no change yet)
+                gr.update(),  # Accordion (no change yet)
+                gr.update(visible=False),  # Keep gallery hidden
+                gr.update(visible=False),  # Keep button hidden during generation
+            )
 
-    # After all steps complete, show the accordion with JSON
+    # After all steps complete, show the accordion with JSON and the "Try Another Example" button
     if final_image is not None:
         yield (
             final_image,
             final_status,
             gr.update(value=settings_json),  # Update textbox content
             gr.update(visible=True),  # Make accordion visible only at the end
+            gr.update(visible=False),  # Keep gallery hidden
+            gr.update(visible=True),  # Show "Try Another Example" button
         )
 
 
@@ -2748,44 +2772,57 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         # Add a title and description
         gr.Markdown("# QR Code Art Generator")
         gr.Markdown("""
-        This is an AI-powered QR code generator that creates artistic QR codes using Stable Diffusion 1.5 and ControlNet models.
-        The application uses a custom ComfyUI workflow to generate QR codes.
+        AI-powered QR code generator with two pipelines: **Artistic** (creative, photorealistic) and **Standard** (fast, reliable).
 
-        **Privacy Notice:** Generated images are automatically deleted after 1 hour.
-        Temporary files are checked and cleaned every hour. Download your QR codes promptly after generation.
+        **Privacy:** Generated images auto-delete after 1 hour. Download promptly!
 
-        **GPU Quota Notice:**
-        - **Unauthenticated users**: 120 seconds daily GPU quota - that's **~6 artistic generations per day** with default settings!
-        - **Free authenticated users**: 210 seconds daily GPU quota - that's **~10 artistic generations per day**, or more with optimizations.
-        - **✅ Recommended**: Default settings (512px, animation enabled, upscaling disabled) use ~20 seconds per generation.
-        - **💡 GPU time varies greatly**: 512px default = ~20s, 1024px with upscaling = ~120s (worst case).
-        - **Save quota tips**: Use Standard QR pipeline (~2x faster than Artistic), disable animation (saves ~20%), avoid upscaling except for final outputs.
-        - **⚠️ For large images (832px+)**: Always disable upscaling to conserve quota. Upscaling has tremendous impact on GPU time.
+        **GPU Quota:**
+        - **Unauthenticated**: 120s daily (~6 artistic generations)
+        - **Authenticated**: 210s daily (~10 artistic generations)
+        - **Tip**: Use Standard pipeline (2x faster) to save quota
 
-        ### Tips:
-        - Use detailed prompts for better results
-        - Include style keywords like 'photorealistic', 'detailed', '8k'
-        - Choose **URL** mode for web links or **Plain Text** mode for VCARD, WiFi credentials, calendar events, etc.
-        - Try the examples below for inspiration
-        - **Animation** (enabled by default): Shows intermediate generation steps every 5 steps. Disable for faster generation. (Available in "Change Settings Manually")
-        - **Color Quantization** (disabled by default): Optional feature to specify a custom color scheme (2-4 colors) for your QR code. Perfect for matching brand colors or creating themed designs with gradient variations. No GPU time impact. (Available in "Change Settings Manually")
-        - **Upscale Image**: Enhances output quality with RealESRGAN (disabled by default to save GPU time). (Available in "Change Settings Manually")
-        - **Copy/paste settings**: After generation, copy the JSON settings string that appears below the image and paste it into "Import Settings from JSON" to reproduce exact results or share with others
-
-        ### Two Modes:
-        - **Artistic QR** (New pipeline, default): More artistic and creative results with optional upscaling (slower, more creative, less scannable)
-        - **Standard QR** (Old pipeline, more stable): ~2x faster than Artistic, more scannable output but less creative results. Great for quota management!
-
-        ### Note:
-        Larger image sizes may take longer to generate.
-
-        Feel free to share your suggestions or feedback on how to improve the app! Thanks!
+        Choose a tab below to get started!
         """)
 
         # Add tabs for different generation methods
         with gr.Tabs():
             # ARTISTIC QR TAB
             with gr.TabItem("Artistic QR"):
+                # Short description
+                gr.Markdown("""
+                🎨 **Create artistic QR codes that blend seamlessly with your creative vision**
+
+                ⚡ **Advanced controls** for perfect balance between scannability and aesthetics
+
+                💡 **More creative and photorealistic** than Standard pipeline
+                """)
+
+                # Full documentation in collapsed accordion
+                with gr.Accordion("📖 Full Documentation & Tips", open=False):
+                    gr.Markdown("""
+                    ### About Artistic QR Pipeline
+                    The Artistic pipeline uses FLUX.1-dev to create highly creative, photorealistic QR codes. This pipeline offers:
+                    - More artistic freedom and creative results
+                    - Optional upscaling with RealESRGAN
+                    - FreeU and SAG (Self-Attention Guidance) for enhanced quality
+                    - Customizable ControlNet strength for balancing art vs scannability
+
+                    ### Tips for Best Results:
+                    - **Prompts**: Use detailed descriptions with style keywords ('photorealistic', 'detailed', '8k', '16k')
+                    - **Input Mode**: Choose **URL** for web links or **Plain Text** for VCARD, WiFi, calendars, etc.
+                    - **Animation** (enabled by default): Shows intermediate steps. Disable to save ~20% GPU time
+                    - **Color Quantization**: Apply custom brand colors (2-4 color palette with optional gradients)
+                    - **Upscaling**: Enhances output quality but uses more GPU quota - disabled by default
+
+                    ### GPU Usage:
+                    - Default settings (512px): ~20 seconds per generation
+                    - With upscaling: ~40-60 seconds
+                    - Large images (832px+): Always disable upscaling to conserve quota
+
+                    ### Sharing Settings:
+                    After generation, copy the JSON settings that appear below your image to reproduce exact results or share with others using "Import Settings from JSON"
+                    """)
+
                 with gr.Row():
                     with gr.Column():
                         # Add input type selector for artistic QR
@@ -3197,14 +3234,30 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         )
 
                     with gr.Column():
-                        # The output image for artistic QR
+                        # Examples Gallery (initially visible)
+                        gr.Markdown("### Featured Examples")
+
+                        example_gallery = gr.Gallery(
+                            value=[(ex["image"], ex["label"]) for ex in ARTISTIC_EXAMPLES],
+                            label="Example Gallery",
+                            columns=3,
+                            rows=3,
+                            height="auto",
+                            object_fit="cover",
+                            allow_preview=True,
+                            show_download_button=False,
+                        )
+
+                        # The output image for artistic QR (initially hidden)
                         artistic_output_image = gr.Image(
-                            label="Generated Artistic QR Code"
+                            label="Generated Artistic QR Code",
+                            visible=False,
                         )
                         artistic_error_message = gr.Textbox(
                             label="Status / Errors",
                             interactive=False,
                             lines=3,
+                            visible=True,  # Keep visible to show status messages
                         )
                         # Wrap settings output in accordion (initially hidden)
                         with gr.Accordion(
@@ -3216,6 +3269,13 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                                 lines=5,
                                 show_copy_button=True,
                             )
+
+                        # Button to show examples again (initially hidden)
+                        show_examples_btn = gr.Button(
+                            "🎨 Try Another Example",
+                            variant="secondary",
+                            visible=False,
+                        )
 
                 # When clicking the button, it will trigger the artistic function
                 artistic_generate_btn.click(
@@ -3259,6 +3319,8 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         artistic_error_message,
                         settings_output_artistic,
                         settings_accordion_artistic,
+                        example_gallery,  # Control gallery visibility
+                        show_examples_btn,  # Control button visibility
                     ],
                 )
 
@@ -3317,20 +3379,27 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                     outputs=[artistic_seed],
                 )
 
-                # Examples Gallery
-                gr.Markdown("### Featured Examples")
-                gr.Markdown("Click any image to load its settings")
+                # Event handler for "Try Another Example" button
+                def show_examples_again():
+                    """Show the gallery again and hide output"""
+                    return (
+                        gr.update(visible=False),  # Hide output image
+                        "",  # Clear error message
+                        gr.update(visible=False),  # Hide settings accordion
+                        gr.update(visible=True),  # Show gallery
+                        gr.update(visible=False),  # Hide this button
+                    )
 
-                # Create gallery from examples data
-                example_gallery = gr.Gallery(
-                    value=[(ex["image"], ex["label"]) for ex in ARTISTIC_EXAMPLES],
-                    label="Example Gallery",
-                    columns=3,
-                    rows=3,
-                    height="auto",
-                    object_fit="cover",
-                    allow_preview=True,
-                    show_download_button=False,
+                show_examples_btn.click(
+                    fn=show_examples_again,
+                    inputs=None,
+                    outputs=[
+                        artistic_output_image,
+                        artistic_error_message,
+                        settings_accordion_artistic,
+                        example_gallery,
+                        show_examples_btn,
+                    ],
                 )
 
                 # Event handler to load settings when user clicks an example
@@ -3349,6 +3418,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         example["use_custom_seed"],
                         example["seed"],
                         example["sag_blur_sigma"],
+                        gr.update(visible=False),  # Hide output image
+                        "Settings loaded! Click 'Generate Artistic QR' to create your QR code",  # Show in Status/Errors
+                        gr.update(visible=False),  # Hide settings accordion
                     )
 
                 # Attach the event handler
@@ -3367,11 +3439,53 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         artistic_use_custom_seed,
                         artistic_seed,
                         sag_blur_sigma,
+                        artistic_output_image,  # Reset visibility
+                        artistic_error_message,  # Show status message
+                        settings_accordion_artistic,  # Reset visibility
                     ],
                 )
 
             # STANDARD QR TAB
             with gr.TabItem("Standard QR"):
+                # Short description
+                gr.Markdown("""
+                ⚡ **2x faster than Artistic pipeline** - perfect for quota management
+
+                🎯 **More stable and scannable results** with proven reliability
+
+                🛠️ **Advanced QR customization** with module styles and border controls
+                """)
+
+                # Full documentation in collapsed accordion
+                with gr.Accordion("📖 Full Documentation & Tips", open=False):
+                    gr.Markdown("""
+                    ### About Standard QR Pipeline
+                    The Standard pipeline uses Stable Diffusion 1.5 with ControlNet for fast, reliable QR code generation. This pipeline offers:
+                    - ~2x faster generation than Artistic (saves GPU quota)
+                    - More scannable, stable output
+                    - Customizable module styles (Square, Circle, Rounded, Bars, etc.)
+                    - Border controls and error correction levels
+                    - Optional upscaling (disabled by default to save quota)
+
+                    ### Tips for Best Results:
+                    - **Speed**: Use default 512px without upscaling (~10 seconds per generation)
+                    - **Scannability**: Lower ControlNet strength = more scannable (try 0.35-0.50)
+                    - **Module Styles**: Experiment with different QR patterns (see style examples below in settings)
+                    - **Animation**: Disable to save ~20% GPU time
+                    - **Border Size**: Higher values (6-8) add more whitespace around QR
+
+                    ### GPU Usage:
+                    - Default settings (512px): ~10 seconds per generation
+                    - With upscaling: ~20-30 seconds
+                    - Best for quota management compared to Artistic pipeline
+
+                    ### Comparison with Artistic:
+                    - **Standard**: Faster, more scannable, less creative
+                    - **Artistic**: Slower, more creative, photorealistic (uses FLUX.1-dev)
+
+                    Choose Standard when you need speed and guaranteed scannability!
+                    """)
+
                 with gr.Row():
                     with gr.Column():
                         # Add input type selector
@@ -3934,9 +4048,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         module_size,
                         module_drawer,
                     ],
-                    outputs=[output_image, error_message],
-                    fn=generate_standard_qr,
-                    cache_examples=False,
+                    cache_examples=False,  # Caching would require all 24 function parameters in examples
+                    examples_per_page=10,
+                    label="Example Presets (Click to Load)",
                 )
 
             # ARTISTIC QR TAB
