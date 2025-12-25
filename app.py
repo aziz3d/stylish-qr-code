@@ -1,8 +1,8 @@
 import os
-import sys
-import time
-import threading
 import queue
+import sys
+import threading
+import time
 
 # Force unbuffered output for real-time logging
 sys.stdout.reconfigure(line_buffering=True)
@@ -587,10 +587,10 @@ def get_dynamic_duration(*args, **kwargs):
     Artistic: 640+anim=23s, 832+anim=45s, 832+anim+upscale=57s, 1024+anim+upscale=124s
     """
     # Extract only the parameters we need from kwargs
-    pipeline = kwargs.get('pipeline', 'standard')
-    image_size = kwargs.get('image_size', 512)
-    enable_animation = kwargs.get('enable_animation', True)
-    enable_upscale = kwargs.get('enable_upscale', False)
+    pipeline = kwargs.get("pipeline", "standard")
+    image_size = kwargs.get("image_size", 512)
+    enable_animation = kwargs.get("enable_animation", True)
+    enable_upscale = kwargs.get("enable_upscale", False)
 
     if pipeline == "standard":
         # Standard pipeline benchmarks (with 20% safety margin)
@@ -739,11 +739,14 @@ def generate_qr_code_unified(
 
 class AnimationHandler:
     """Handler for managing KSampler animation callbacks"""
+
     def __init__(self, preview_size=512):
         self.intermediate_images = []
         self.image_queue = queue.Queue()
         self.enabled = False
-        self.preview_size = preview_size  # Consistent preview size for all intermediate images
+        self.preview_size = (
+            preview_size  # Consistent preview size for all intermediate images
+        )
 
     def create_callback(self, vae, interval=5):
         """Create a callback that stores intermediate decoded images"""
@@ -761,6 +764,7 @@ class AnimationHandler:
                     # Key insight: inference_mode tensors cannot be used in backward pass
                     # Source: https://pytorch.org/docs/stable/generated/torch.autograd.grad_mode.inference_mode.html
                     import torch
+
                     with torch.no_grad():
                         # Create a detached clone and ensure contiguous memory layout
                         # .contiguous() ensures proper memory layout for VAE decoder
@@ -777,13 +781,20 @@ class AnimationHandler:
                         image_tensor = get_value_at_index(decoded, 0)
 
                         # Convert EXACTLY like final images (lines 1915-1918) - no transpose, no mode
-                        image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
+                        image_np = (image_tensor.detach().cpu().numpy() * 255).astype(
+                            np.uint8
+                        )
                         image_np = image_np[0]
                         pil_image = Image.fromarray(image_np)
 
                         # Resize to consistent preview size to avoid size inconsistencies in UI
-                        if pil_image.size[0] > self.preview_size or pil_image.size[1] > self.preview_size:
-                            pil_image.thumbnail((self.preview_size, self.preview_size), Image.LANCZOS)
+                        if (
+                            pil_image.size[0] > self.preview_size
+                            or pil_image.size[1] > self.preview_size
+                        ):
+                            pil_image.thumbnail(
+                                (self.preview_size, self.preview_size), Image.LANCZOS
+                            )
 
                         # Store with message (step is already the correct value at interval points)
                         msg = f"Sampling progress: step {step}/{total_steps}"
@@ -801,9 +812,20 @@ class AnimationHandler:
         return images
 
 
-def ksampler_with_animation(model, seed, steps, cfg, sampler_name, scheduler,
-                           positive, negative, latent_image, denoise=1.0,
-                           animation_handler=None, vae=None):
+def ksampler_with_animation(
+    model,
+    seed,
+    steps,
+    cfg,
+    sampler_name,
+    scheduler,
+    positive,
+    negative,
+    latent_image,
+    denoise=1.0,
+    animation_handler=None,
+    vae=None,
+):
     """
     Custom KSampler that supports animation callbacks.
     Based on ComfyUI's common_ksampler but with animation support.
@@ -837,12 +859,24 @@ def ksampler_with_animation(model, seed, steps, cfg, sampler_name, scheduler,
 
     # Sample
     samples = comfy.sample.sample(
-        model, noise, steps, cfg, sampler_name, scheduler,
-        positive, negative, latent_image_data,
-        denoise=denoise, disable_noise=False, start_step=None,
-        last_step=None, force_full_denoise=False,
-        noise_mask=noise_mask, callback=animation_callback,
-        disable_pbar=disable_pbar, seed=seed
+        model,
+        noise,
+        steps,
+        cfg,
+        sampler_name,
+        scheduler,
+        positive,
+        negative,
+        latent_image_data,
+        denoise=denoise,
+        disable_noise=False,
+        start_step=None,
+        last_step=None,
+        force_full_denoise=False,
+        noise_mask=noise_mask,
+        callback=animation_callback,
+        disable_pbar=disable_pbar,
+        seed=seed,
     )
 
     out = latent.copy()
@@ -1782,7 +1816,9 @@ def _pipeline_standard(
     gr_progress=None,
 ):
     # Initialize animation handler if enabled
-    animation_handler = AnimationHandler(preview_size=image_size) if enable_animation else None
+    animation_handler = (
+        AnimationHandler(preview_size=image_size) if enable_animation else None
+    )
     if animation_handler:
         animation_handler.enabled = True
 
@@ -1840,7 +1876,9 @@ def _pipeline_standard(
         return
 
     # Calculate total steps based on enabled features
-    total_steps = 3 + (1 if enable_upscale else 0) + (1 if enable_color_quantization else 0)
+    total_steps = (
+        3 + (1 if enable_upscale else 0) + (1 if enable_color_quantization else 0)
+    )
 
     # 1) Yield the base QR image as the first intermediate result
     base_qr_tensor = get_value_at_index(comfy_qr_by_module_size_15, 0)
@@ -1895,6 +1933,7 @@ def _pipeline_standard(
         if animation_handler and enable_animation:
             # Run ksampler in thread to allow real-time image yielding
             result_container = [None]
+
             def run_ksampler():
                 result_container[0] = ksampler_with_animation(
                     model=get_value_at_index(checkpointloadersimple_4, 0),
@@ -1915,7 +1954,9 @@ def _pipeline_standard(
             ksampler_thread.start()
 
             # Yield intermediate images as they're captured
-            while ksampler_thread.is_alive() or not animation_handler.image_queue.empty():
+            while (
+                ksampler_thread.is_alive() or not animation_handler.image_queue.empty()
+            ):
                 try:
                     img, msg = animation_handler.image_queue.get(timeout=0.1)
                     yield img, msg
@@ -1957,7 +1998,9 @@ def _pipeline_standard(
         mid_np = (mid_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         mid_np = mid_np[0]
         mid_pil = Image.fromarray(mid_np)
-        msg = f"First enhancement pass complete (step 2/{total_steps})… refining details"
+        msg = (
+            f"First enhancement pass complete (step 2/{total_steps})… refining details"
+        )
         log_progress(msg, gr_progress, 0.5)
         yield mid_pil, msg
 
@@ -1982,6 +2025,7 @@ def _pipeline_standard(
         if animation_handler and enable_animation:
             # Run ksampler in thread to allow real-time image yielding
             result_container = [None]
+
             def run_ksampler():
                 result_container[0] = ksampler_with_animation(
                     model=get_value_at_index(checkpointloadersimple_4, 0),
@@ -2002,7 +2046,9 @@ def _pipeline_standard(
             ksampler_thread.start()
 
             # Yield intermediate images as they're captured
-            while ksampler_thread.is_alive() or not animation_handler.image_queue.empty():
+            while (
+                ksampler_thread.is_alive() or not animation_handler.image_queue.empty()
+            ):
                 try:
                     img, msg = animation_handler.image_queue.get(timeout=0.1)
                     yield img, msg
@@ -2157,7 +2203,9 @@ def _pipeline_artistic(
     gr_progress=None,
 ):
     # Initialize animation handler if enabled
-    animation_handler = AnimationHandler(preview_size=image_size) if enable_animation else None
+    animation_handler = (
+        AnimationHandler(preview_size=image_size) if enable_animation else None
+    )
     if animation_handler:
         animation_handler.enabled = True
 
@@ -2320,6 +2368,7 @@ def _pipeline_artistic(
     if animation_handler and enable_animation:
         # Run ksampler in thread to allow real-time image yielding
         result_container = [None]
+
         def run_ksampler():
             result_container[0] = ksampler_with_animation(
                 model=enhanced_model,  # Using FreeU + SAG enhanced model
@@ -2415,6 +2464,7 @@ def _pipeline_artistic(
     if animation_handler and enable_animation:
         # Run ksampler in thread to allow real-time image yielding
         result_container = [None]
+
         def run_ksampler():
             result_container[0] = ksampler_with_animation(
                 model=enhanced_model,  # Using FreeU + SAG enhanced model
@@ -2553,6 +2603,145 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
     else:
         print("ℹ️  AOT compilation skipped on MPS (MacBook) - using eager mode\n")
 
+    # Define artistic examples data
+    ARTISTIC_EXAMPLES = [
+        {
+            "image": "examples/artistic/japanese_temple.jpg",
+            "label": "Japanese Temple",
+            "prompt": "some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
+            "text_input": "https://www.google.com",
+            "input_type": "URL",
+            "image_size": 640,
+            "border_size": 6,
+            "error_correction": "Medium (15%)",
+            "module_size": 14,
+            "module_drawer": "Square",
+            "use_custom_seed": True,
+            "seed": 718313,
+            "sag_blur_sigma": 0.5,
+        },
+        {
+            "image": "examples/artistic/sunset_mountains.jpg",
+            "label": "Sunset Mountains",
+            "prompt": "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
+            "text_input": "https://github.com",
+            "input_type": "URL",
+            "image_size": 704,
+            "border_size": 6,
+            "error_correction": "High (30%)",
+            "module_size": 16,
+            "module_drawer": "Square",
+            "use_custom_seed": True,
+            "seed": 718313,
+            "sag_blur_sigma": 0.5,
+        },
+        {
+            "image": "examples/artistic/roman_city.jpg",
+            "label": "Roman City",
+            "prompt": "aerial bird view of ancient Roman city, cobblestone streets and pathways forming intricate patterns, vintage illustration style, sepia tones, aged parchment look, detailed architecture, 8k, ultra detailed",
+            "text_input": "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
+            "input_type": "Plain Text",
+            "image_size": 832,
+            "border_size": 6,
+            "error_correction": "High (30%)",
+            "module_size": 16,
+            "module_drawer": "Square",
+            "use_custom_seed": True,
+            "seed": 718313,
+            "sag_blur_sigma": 0.5,
+        },
+        {
+            "image": "examples/artistic/neapolitan_pizza.webp",
+            "label": "Neapolitan Pizza",
+            "prompt": "artisan Neapolitan pizza on rustic wooden board, fresh basil leaves scattered on top and around, oregano sprinkled, flour dust particles floating in air, melted mozzarella with char marks, traditional Italian pizzeria ambiance, warm brick oven glow in background, detailed food photography, photorealistic, 8k, ultra detailed",
+            "text_input": "https://www.pizzamaking.com",
+            "input_type": "URL",
+            "image_size": 704,
+            "border_size": 5,
+            "error_correction": "High (30%)",
+            "module_size": 16,
+            "module_drawer": "Square",
+            "use_custom_seed": True,
+            "seed": 856749,
+            "sag_blur_sigma": 2.0,
+        },
+        {
+            "image": "examples/artistic/poker_chips.webp",
+            "label": "Poker Chips",
+            "prompt": "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+            "text_input": "https://store.steampowered.com",
+            "input_type": "URL",
+            "image_size": 768,
+            "border_size": 6,
+            "error_correction": "High (30%)",
+            "module_size": 16,
+            "module_drawer": "Square",
+            "use_custom_seed": True,
+            "seed": 718313,
+            "sag_blur_sigma": 2.5,
+        },
+        {
+            "image": "examples/artistic/underwater_fish.webp",
+            "label": "Underwater Fish",
+            "prompt": "underwater scene with tropical fish, coral reef, rays of sunlight penetrating water, vibrant colors, detailed marine life, photorealistic, 8k, ultra detailed",
+            "text_input": "https://www.reddit.com",
+            "input_type": "URL",
+            "image_size": 704,
+            "border_size": 6,
+            "error_correction": "High (30%)",
+            "module_size": 16,
+            "module_drawer": "Square",
+            "use_custom_seed": True,
+            "seed": 718313,
+            "sag_blur_sigma": 0.5,
+        },
+        {
+            "image": "examples/artistic/mediterranean_garden.jpg",
+            "label": "Mediterranean Garden",
+            "prompt": "ancient stone sundial in Mediterranean garden, olive trees, dappled sunlight through leaves, weathered stone texture, peaceful afternoon scene, photorealistic, detailed, 8k, ultra detailed",
+            "text_input": "BEGIN:VEVENT\\nSUMMARY:Team Meeting\\nDTSTART:20251115T140000Z\\nDTEND:20251115T150000Z\\nLOCATION:Conference Room A\\nEND:VEVENT",
+            "input_type": "Plain Text",
+            "image_size": 1024,
+            "border_size": 6,
+            "error_correction": "High (30%)",
+            "module_size": 14,
+            "module_drawer": "Square",
+            "use_custom_seed": True,
+            "seed": 413468,
+            "sag_blur_sigma": 0.5,
+        },
+        {
+            "image": "examples/artistic/rice_fields.jpg",
+            "label": "Rice Fields",
+            "prompt": "aerial view of terraced rice fields on mountainside, winding pathways between green paddies, Asian countryside, bird's eye perspective, detailed landscape, golden hour lighting, photorealistic, 8k, ultra detailed",
+            "text_input": "geo:37.7749,-122.4194",
+            "input_type": "Plain Text",
+            "image_size": 704,
+            "border_size": 6,
+            "error_correction": "High (30%)",
+            "module_size": 16,
+            "module_drawer": "Square",
+            "use_custom_seed": True,
+            "seed": 962359,
+            "sag_blur_sigma": 0.5,
+        },
+        {
+            "image": "examples/artistic/cyberpunk_city.webp",
+            "label": "Cyberpunk City",
+            "prompt": "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
+            "text_input": "https://linkedin.com",
+            "input_type": "URL",
+            "image_size": 704,
+            "border_size": 6,
+            "error_correction": "High (30%)",
+            "module_size": 16,
+            "module_drawer": "Square",
+            "use_custom_seed": True,
+            "seed": 718313,
+            "sag_blur_sigma": 1.5,
+        },
+    ]
+
     # Start your Gradio app with automatic cache cleanup
     # delete_cache=(3600, 3600) means: check every hour and delete files older than 1 hour
     with gr.Blocks(delete_cache=(3600, 3600)) as app:
@@ -2647,7 +2836,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
                         # Change Settings Manually - separate accordion
                         with gr.Accordion("Change Settings Manually", open=False):
-                            gr.Markdown("**Advanced controls including:** Animation toggle, Color Quantization, FreeU/SAG parameters, ControlNet strength, QR settings, and more.")
+                            gr.Markdown(
+                                "**Advanced controls including:** Animation toggle, Color Quantization, FreeU/SAG parameters, ControlNet strength, QR settings, and more."
+                            )
                             # Negative Prompt
                             negative_prompt_artistic = gr.Textbox(
                                 label="Negative Prompt",
@@ -2788,7 +2979,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
                             # Color Quantization Section
                             gr.Markdown("### Color Quantization (Optional)")
-                            gr.Markdown("Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs.")
+                            gr.Markdown(
+                                "Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs."
+                            )
                             artistic_enable_color_quantization = gr.Checkbox(
                                 label="Enable Color Quantization",
                                 value=False,
@@ -3124,392 +3317,44 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                     outputs=[artistic_seed],
                 )
 
-                # Custom Examples Gallery with Images
+                # Examples Gallery
                 gr.Markdown("### Featured Examples")
-                gr.Markdown(
-                    "Click 'Load Settings' under any example to populate the form with those exact settings"
+                gr.Markdown("Click any image to load its settings")
+
+                # Create gallery from examples data
+                example_gallery = gr.Gallery(
+                    value=[(ex["image"], ex["label"]) for ex in ARTISTIC_EXAMPLES],
+                    label="Example Gallery",
+                    columns=3,
+                    rows=3,
+                    height="auto",
+                    object_fit="cover",
+                    allow_preview=True,
+                    show_download_button=False,
                 )
 
-                # First row (3 images)
-                with gr.Row():
-                    # Example 1: Japanese Temple
-                    with gr.Column(scale=1):
-                        ex1_img = gr.Image(
-                            "examples/artistic/japanese_temple.jpg",
-                            label="Japanese Temple",
-                            show_label=True,
-                            interactive=False,
-                            show_download_button=False,
-                            height=280,
-                        )
-                        ex1_btn = gr.Button(
-                            "Load Settings", size="sm", variant="secondary"
-                        )
+                # Event handler to load settings when user clicks an example
+                def load_example_settings(evt: gr.SelectData):
+                    """Load settings when user clicks an example image"""
+                    example = ARTISTIC_EXAMPLES[evt.index]
+                    return (
+                        example["prompt"],
+                        example["text_input"],
+                        example["input_type"],
+                        example["image_size"],
+                        example["border_size"],
+                        example["error_correction"],
+                        example["module_size"],
+                        example["module_drawer"],
+                        example["use_custom_seed"],
+                        example["seed"],
+                        example["sag_blur_sigma"],
+                    )
 
-                    # Example 2: Sunset Mountains
-                    with gr.Column(scale=1):
-                        ex2_img = gr.Image(
-                            "examples/artistic/sunset_mountains.jpg",
-                            label="Sunset Mountains",
-                            show_label=True,
-                            interactive=False,
-                            show_download_button=False,
-                            height=280,
-                        )
-                        ex2_btn = gr.Button(
-                            "Load Settings", size="sm", variant="secondary"
-                        )
-
-                    # Example 3: Roman City
-                    with gr.Column(scale=1):
-                        ex3_img = gr.Image(
-                            "examples/artistic/roman_city.jpg",
-                            label="Roman City",
-                            show_label=True,
-                            interactive=False,
-                            show_download_button=False,
-                            height=280,
-                        )
-                        ex3_btn = gr.Button(
-                            "Load Settings", size="sm", variant="secondary"
-                        )
-
-                # Second row (3 images)
-                with gr.Row():
-                    # Example 4: Neapolitan Pizza
-                    with gr.Column(scale=1):
-                        ex4_img = gr.Image(
-                            "examples/artistic/neapolitan_pizza.webp",
-                            label="Neapolitan Pizza",
-                            show_label=True,
-                            interactive=False,
-                            show_download_button=False,
-                            height=280,
-                        )
-                        ex4_btn = gr.Button(
-                            "Load Settings", size="sm", variant="secondary"
-                        )
-
-                    # Example 5: Poker Chips
-                    with gr.Column(scale=1):
-                        ex5_img = gr.Image(
-                            "examples/artistic/poker_chips.webp",
-                            label="Poker Chips",
-                            show_label=True,
-                            interactive=False,
-                            show_download_button=False,
-                            height=280,
-                        )
-                        ex5_btn = gr.Button(
-                            "Load Settings", size="sm", variant="secondary"
-                        )
-
-                    # Example 6: Underwater Fish
-                    with gr.Column(scale=1):
-                        ex6_img = gr.Image(
-                            "examples/artistic/underwater_fish.webp",
-                            label="Underwater Fish",
-                            show_label=True,
-                            interactive=False,
-                            show_download_button=False,
-                            height=280,
-                        )
-                        ex6_btn = gr.Button(
-                            "Load Settings", size="sm", variant="secondary"
-                        )
-
-                # Third row (3 images)
-                with gr.Row():
-                    # Example 7: Mediterranean Garden
-                    with gr.Column(scale=1):
-                        ex7_img = gr.Image(
-                            "examples/artistic/mediterranean_garden.jpg",
-                            label="Mediterranean Garden",
-                            show_label=True,
-                            interactive=False,
-                            show_download_button=False,
-                            height=280,
-                        )
-                        ex7_btn = gr.Button(
-                            "Load Settings", size="sm", variant="secondary"
-                        )
-
-                    # Example 8: Rice Fields
-                    with gr.Column(scale=1):
-                        ex8_img = gr.Image(
-                            "examples/artistic/rice_fields.jpg",
-                            label="Rice Fields",
-                            show_label=True,
-                            interactive=False,
-                            show_download_button=False,
-                            height=280,
-                        )
-                        ex8_btn = gr.Button(
-                            "Load Settings", size="sm", variant="secondary"
-                        )
-
-                    # Example 9: Cyberpunk City
-                    with gr.Column(scale=1):
-                        ex9_img = gr.Image(
-                            "examples/artistic/cyberpunk_city.webp",
-                            label="Cyberpunk City",
-                            show_label=True,
-                            interactive=False,
-                            show_download_button=False,
-                            height=280,
-                        )
-                        ex9_btn = gr.Button(
-                            "Load Settings", size="sm", variant="secondary"
-                        )
-
-                # Load settings button handlers
-                # Ex1: Japanese Temple
-                ex1_btn.click(
-                    fn=lambda: (
-                        "some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
-                        "https://www.google.com",
-                        "URL",
-                        640,
-                        6,
-                        "Medium (15%)",
-                        14,
-                        "Square",
-                        True,
-                        718313,
-                        0.5,
-                    ),
-                    outputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                    ],
-                )
-                # Ex2: Sunset Mountains
-                ex2_btn.click(
-                    fn=lambda: (
-                        "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
-                        "https://github.com",
-                        "URL",
-                        704,
-                        6,
-                        "High (30%)",
-                        16,
-                        "Square",
-                        True,
-                        718313,
-                        0.5,
-                    ),
-                    outputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                    ],
-                )
-                # Ex3: Roman City
-                ex3_btn.click(
-                    fn=lambda: (
-                        "aerial bird view of ancient Roman city, cobblestone streets and pathways forming intricate patterns, vintage illustration style, sepia tones, aged parchment look, detailed architecture, 8k, ultra detailed",
-                        "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
-                        "Plain Text",
-                        832,
-                        6,
-                        "High (30%)",
-                        16,
-                        "Square",
-                        True,
-                        718313,
-                        0.5,
-                    ),
-                    outputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                    ],
-                )
-                # Ex4: Neapolitan Pizza
-                ex4_btn.click(
-                    fn=lambda: (
-                        "artisan Neapolitan pizza on rustic wooden board, fresh basil leaves scattered on top and around, oregano sprinkled, flour dust particles floating in air, melted mozzarella with char marks, traditional Italian pizzeria ambiance, warm brick oven glow in background, detailed food photography, photorealistic, 8k, ultra detailed",
-                        "https://www.pizzamaking.com",
-                        "URL",
-                        704,
-                        5,
-                        "High (30%)",
-                        16,
-                        "Square",
-                        True,
-                        856749,
-                        2.0,
-                    ),
-                    outputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                    ],
-                )
-                # Ex5: Poker Chips
-                ex5_btn.click(
-                    fn=lambda: (
-                        "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-                        "https://store.steampowered.com",
-                        "URL",
-                        768,
-                        6,
-                        "High (30%)",
-                        16,
-                        "Square",
-                        True,
-                        718313,
-                        2.5,
-                    ),
-                    outputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                    ],
-                )
-                # Ex6: Underwater Fish
-                ex6_btn.click(
-                    fn=lambda: (
-                        "underwater scene with tropical fish, coral reef, rays of sunlight penetrating water, vibrant colors, detailed marine life, photorealistic, 8k, ultra detailed",
-                        "https://www.reddit.com",
-                        "URL",
-                        704,
-                        6,
-                        "High (30%)",
-                        16,
-                        "Square",
-                        True,
-                        718313,
-                        0.5,
-                    ),
-                    outputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                    ],
-                )
-                # Ex7: Mediterranean Garden
-                ex7_btn.click(
-                    fn=lambda: (
-                        "ancient stone sundial in Mediterranean garden, olive trees, dappled sunlight through leaves, weathered stone texture, peaceful afternoon scene, photorealistic, detailed, 8k, ultra detailed",
-                        "BEGIN:VEVENT\\nSUMMARY:Team Meeting\\nDTSTART:20251115T140000Z\\nDTEND:20251115T150000Z\\nLOCATION:Conference Room A\\nEND:VEVENT",
-                        "Plain Text",
-                        1024,
-                        6,
-                        "High (30%)",
-                        14,
-                        "Square",
-                        True,
-                        413468,
-                        0.5,
-                    ),
-                    outputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                    ],
-                )
-                # Ex8: Rice Fields
-                ex8_btn.click(
-                    fn=lambda: (
-                        "aerial view of terraced rice fields on mountainside, winding pathways between green paddies, Asian countryside, bird's eye perspective, detailed landscape, golden hour lighting, photorealistic, 8k, ultra detailed",
-                        "geo:37.7749,-122.4194",
-                        "Plain Text",
-                        704,
-                        6,
-                        "High (30%)",
-                        16,
-                        "Square",
-                        True,
-                        962359,
-                        0.5,
-                    ),
-                    outputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                    ],
-                )
-                # Ex9: Cyberpunk City
-                ex9_btn.click(
-                    fn=lambda: (
-                        "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
-                        "https://linkedin.com",
-                        "URL",
-                        704,
-                        6,
-                        "High (30%)",
-                        16,
-                        "Square",
-                        True,
-                        718313,
-                        1.5,
-                    ),
+                # Attach the event handler
+                example_gallery.select(
+                    fn=load_example_settings,
+                    inputs=None,
                     outputs=[
                         artistic_prompt_input,
                         artistic_text_input,
@@ -3577,7 +3422,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
                         # Change Settings Manually - separate accordion
                         with gr.Accordion("Change Settings Manually", open=False):
-                            gr.Markdown("**Advanced controls including:** Animation toggle, Color Quantization, ControlNet strength, QR settings, and more.")
+                            gr.Markdown(
+                                "**Advanced controls including:** Animation toggle, Color Quantization, ControlNet strength, QR settings, and more."
+                            )
                             # Negative Prompt
                             negative_prompt_standard = gr.Textbox(
                                 label="Negative Prompt",
@@ -3718,7 +3565,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
                             # Color Quantization Section
                             gr.Markdown("### Color Quantization (Optional)")
-                            gr.Markdown("Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs.")
+                            gr.Markdown(
+                                "Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs."
+                            )
                             enable_color_quantization = gr.Checkbox(
                                 label="Enable Color Quantization",
                                 value=False,
@@ -4092,6 +3941,6 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
 
             # ARTISTIC QR TAB
     app.queue()  # Required for gr.Progress() to work!
-    app.launch(share=False, mcp_server=True)
+    app.launch(share=True, mcp_server=True)
     # Note: Automatic file cleanup via delete_cache not available in Gradio 5.49.1
     # Files will be cleaned up when the server is restarted
