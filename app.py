@@ -671,6 +671,10 @@ def generate_qr_code_unified(
     enable_animation: bool = True,
     progress=gr.Progress(),
 ):
+    # Track actual GPU time spent
+    start_time = time.time()
+    print(f"[GPU TIMING] Started generation: pipeline={pipeline}, image_size={image_size}, animation={enable_animation}, upscale={enable_upscale}")
+
     # Only manipulate the text if it's a URL input type
     qr_text = text_input
     if input_type == "URL":
@@ -684,7 +688,7 @@ def generate_qr_code_unified(
 
     with torch.no_grad():
         if pipeline == "standard":
-            yield from _pipeline_standard(
+            for result in _pipeline_standard(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 qr_text=qr_text,
@@ -709,9 +713,10 @@ def generate_qr_code_unified(
                 variation_steps=variation_steps,
                 enable_animation=enable_animation,
                 gr_progress=progress,
-            )
+            ):
+                yield result
         else:  # artistic
-            yield from _pipeline_artistic(
+            for result in _pipeline_artistic(
                 prompt=prompt,
                 negative_prompt=negative_prompt,
                 qr_text=qr_text,
@@ -743,7 +748,12 @@ def generate_qr_code_unified(
                 variation_steps=variation_steps,
                 enable_animation=enable_animation,
                 gr_progress=progress,
-            )
+            ):
+                yield result
+
+    # Log actual time spent after generation completes
+    elapsed_time = time.time() - start_time
+    print(f"[GPU TIMING] Completed generation in {elapsed_time:.2f}s (pipeline={pipeline}, image_size={image_size})")
 
 
 class AnimationHandler:
