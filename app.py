@@ -2794,9 +2794,14 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
         **Privacy:** Generated images auto-delete after 1 hour. Download promptly!
 
         **GPU Quota:**
-        - **Unauthenticated**: 120s daily (~6 artistic generations)
-        - **Authenticated**: 210s daily (~10 artistic generations)
+        - **Unauthenticated**: 120s daily (~1 generation at 1024px or ~6 at 512px)
+        - **Authenticated**: 210s daily (~10 artistic generations at 512px)
         - **Tip**: Use Standard pipeline (2x faster) to save quota
+
+        **Zero GPU Error?** If you see "Zero GPU" error, you've run out of quota. Options:
+        - Wait until tomorrow for quota reset
+        - Register a Hugging Face account for more generations
+        - Subscribe to PRO for even more generations
 
         Choose a tab below to get started!
         """)
