@@ -3331,6 +3331,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                     object_fit="cover",
                     allow_preview=True,
                     show_download_button=False,
+                    selected_index=0,  # Open first image by default for better mobile UX
                 )
 
                 # Event handler to load settings when user clicks an example
