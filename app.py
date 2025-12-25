@@ -579,14 +579,15 @@ def compile_models_with_aoti():
 
 def get_dynamic_duration(*args, **kwargs):
     """
-    Calculate GPU duration based on benchmarks with 30-40% safety margin.
+    Calculate GPU duration based on benchmarks with safety margins.
     Max duration capped at 120s (unauthenticated user limit).
 
     Benchmarks (actual measured times):
-    Standard: 512+anim=10s, 512-anim=7s, 832+anim=20s, 1024=40s
-    Artistic: 640+anim=23s, 832+anim=45s, 832+anim+upscale=57s, 1024+anim+upscale=124s
+    Standard: 512+anim=10s, 512-anim=7s, 832+anim=20s, 1024=40s (30% safety margin)
+    Artistic: 640+anim=23s, 832+anim=45s, 832+anim+upscale=57s, 1024+anim+upscale=124s (40-50% safety margin)
 
-    Updated with larger margins for complex examples (rice fields, poker, meditation garden).
+    Updated with larger margins for complex examples and to ensure completion of all 30 steps.
+    768px artistic with animation requires ~65s to complete all steps.
     """
     # Extract only the parameters we need from kwargs
     pipeline = kwargs.get("pipeline", "standard")
@@ -607,20 +608,20 @@ def get_dynamic_duration(*args, **kwargs):
         else:  # 1024
             duration = 52 if enable_animation else 38
     else:  # artistic
-        # Artistic pipeline benchmarks (with 35% safety margin for complex prompts)
+        # Artistic pipeline benchmarks (with 40-50% safety margin for complex prompts)
         if image_size <= 512:
             # Extrapolated from 640 benchmark
-            duration = 25 if not enable_upscale else 38
+            duration = 30 if not enable_upscale else 45
         elif image_size <= 640:
-            duration = 35 if not enable_upscale else 52
+            duration = 40 if not enable_upscale else 58
         elif image_size <= 768:
-            # Increased for complex examples (poker, rice fields at 704-768)
-            duration = 50 if not enable_upscale else 68
+            # Increased for complex examples (poker, rice fields at 704-768) - needs ~65s for 30 steps with animation
+            duration = 65 if not enable_upscale else 85
         elif image_size <= 832:
-            duration = 65 if not enable_upscale else 82
+            duration = 75 if not enable_upscale else 95
         else:  # 1024
             # Increased for complex examples (mediterranean garden at 1024)
-            duration = 90 if not enable_upscale else 120  # Worst case measured at 124s
+            duration = 100 if not enable_upscale else 120  # Worst case measured at 124s
 
     # Cap at 120 seconds (unauthenticated user limit)
     return min(duration, 120)
