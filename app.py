@@ -2092,6 +2092,7 @@ def _pipeline_standard(
             msg = f"No errors, all good! Final QR art generated and upscaled. (step {current_step}/{total_steps})"
             log_progress(msg, gr_progress, 1.0)
             yield (pil_image, msg)
+            return  # Explicit return to cleanly exit generator
         else:
             # No upscaling
             image_tensor = get_value_at_index(vaedecode_21, 0)
@@ -2119,6 +2120,7 @@ def _pipeline_standard(
             msg = f"No errors, all good! Final QR art generated. (step {current_step}/{total_steps})"
             log_progress(msg, gr_progress, 1.0)
             yield pil_image, msg
+            return  # Explicit return to cleanly exit generator
 
 
 def _pipeline_artistic(
@@ -2518,6 +2520,7 @@ def _pipeline_artistic(
         msg = f"No errors, all good! Final artistic QR code generated and upscaled. (step {current_step}/{total_steps})"
         log_progress(msg, gr_progress, 1.0)
         yield (final_image, msg)
+        return  # Explicit return to cleanly exit generator
     else:
         # No upscaling
         image_tensor = get_value_at_index(final_decoded, 0)
@@ -2539,6 +2542,7 @@ def _pipeline_artistic(
         msg = f"No errors, all good! Final artistic QR code generated. (step {current_step}/{total_steps})"
         log_progress(msg, gr_progress, 1.0)
         yield (final_image, msg)
+        return  # Explicit return to cleanly exit generator
 
 
 if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
