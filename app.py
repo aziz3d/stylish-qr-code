@@ -1938,10 +1938,10 @@ def _pipeline_standard(
                 latent_image=get_value_at_index(emptylatentimage_5, 0),
             )
 
-        # Yield progress update after first sampling completes
+        # Progress update after first sampling completes (no yield to avoid showing base QR)
         msg = "First pass sampling complete... decoding image"
         log_progress(msg, gr_progress, 0.4)
-        yield base_qr_pil, msg  # Yield with same image as before
+        # Removed yield here - caused flash of black/white QR before decoded image
 
         # Calculate optimal tile size for this image - disable for now
         # tile_size, overlap = calculate_vae_tile_size(image_size)
@@ -2025,10 +2025,10 @@ def _pipeline_standard(
                 latent_image=get_value_at_index(emptylatentimage_17, 0),
             )
 
-        # Yield progress update after second sampling completes
+        # Progress update after second sampling completes (no yield to avoid showing first pass)
         msg = "Second pass sampling complete... decoding final image"
         log_progress(msg, gr_progress, 0.8)
-        yield mid_pil, msg  # Yield with previous image
+        # Removed yield here - caused flash of first pass image before final decoded
 
         # Second pass is always 2x original, calculate based on doubled size
         tile_size_2x, overlap_2x = calculate_vae_tile_size(image_size * 2)
@@ -2363,10 +2363,10 @@ def _pipeline_artistic(
             latent_image=get_value_at_index(latent_image, 0),
         )
 
-    # Yield progress update after first sampling completes
+    # Progress update after first sampling completes (no yield to avoid showing old QR)
     msg = f"First pass sampling complete... decoding image (step {current_step}/{total_steps})"
     log_progress(msg, gr_progress, 0.4)
-    yield (noisy_qr_pil if border_size > 0 else base_qr_pil, msg)
+    # Removed yield here - caused flash of old QR before decoded image
 
     # First decode with dynamic tiling - disable for now
     # tile_size, overlap = calculate_vae_tile_size(image_size)
@@ -2458,10 +2458,10 @@ def _pipeline_artistic(
             latent_image=get_value_at_index(upscaled_latent, 0),
         )
 
-    # Yield progress update after second sampling completes
+    # Progress update after second sampling completes (no yield to avoid showing first pass)
     msg = f"Second pass sampling complete... decoding final image (step {current_step}/{total_steps})"
     log_progress(msg, gr_progress, 0.8)
-    yield (first_pass_pil, msg)
+    # Removed yield here - caused flash of first pass image before final decoded
 
     # Final decode with dynamic tiling
     tile_size, overlap = calculate_vae_tile_size(image_size)
