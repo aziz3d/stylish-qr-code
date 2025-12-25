@@ -3394,7 +3394,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         gr.update(visible=False),  # Hide output image
                         "",  # Clear error message
                         gr.update(visible=False),  # Hide settings accordion
-                        gr.update(visible=True),  # Show gallery
+                        gr.update(visible=True, selected_index=None),  # Show gallery with no selection
                         gr.update(visible=False),  # Hide this button
                     )
 
