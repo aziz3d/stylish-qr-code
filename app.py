@@ -2719,7 +2719,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
             "module_drawer": "Square",
             "use_custom_seed": True,
             "seed": 718313,
-            "sag_blur_sigma": 2.5,
+            "sag_blur_sigma": 1.5,
         },
         {
             "image": "examples/artistic/underwater_fish.webp",
@@ -2733,8 +2733,8 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
             "module_size": 16,
             "module_drawer": "Square",
             "use_custom_seed": True,
-            "seed": 718313,
-            "sag_blur_sigma": 0.5,
+            "seed": 3048334933,
+            "sag_blur_sigma": 1.5,
         },
         {
             "image": "examples/artistic/mediterranean_garden.jpg",
