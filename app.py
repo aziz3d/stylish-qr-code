@@ -589,11 +589,16 @@ def get_dynamic_duration(*args, **kwargs):
     Updated with larger margins for complex examples and to ensure completion of all 30 steps.
     768px artistic with animation requires ~65s to complete all steps.
     """
+    # Debug logging
+    print(f"[GPU DURATION DEBUG] Called with args={args}, kwargs keys={list(kwargs.keys()) if kwargs else 'None'}")
+
     # Extract only the parameters we need from kwargs
     pipeline = kwargs.get("pipeline", "standard")
     image_size = kwargs.get("image_size", 512)
     enable_animation = kwargs.get("enable_animation", True)
     enable_upscale = kwargs.get("enable_upscale", False)
+
+    print(f"[GPU DURATION DEBUG] Extracted: pipeline={pipeline}, image_size={image_size}, enable_animation={enable_animation}, enable_upscale={enable_upscale}")
 
     if pipeline == "standard":
         # Standard pipeline benchmarks (with 30% safety margin)
@@ -624,7 +629,9 @@ def get_dynamic_duration(*args, **kwargs):
             duration = 100 if not enable_upscale else 120  # Worst case measured at 124s
 
     # Cap at 120 seconds (unauthenticated user limit)
-    return min(duration, 120)
+    final_duration = min(duration, 120)
+    print(f"[GPU DURATION DEBUG] Calculated duration={duration}, final_duration={final_duration}")
+    return final_duration
 
 
 @spaces.GPU(duration=get_dynamic_duration)  # Dynamic duration based on settings
