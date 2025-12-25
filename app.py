@@ -579,54 +579,53 @@ def compile_models_with_aoti():
 
 def get_dynamic_duration(*args, **kwargs):
     """
-    Calculate GPU duration based on benchmarks with safety margins.
+    Calculate GPU duration based on benchmarks with 20-25% safety margin.
     Max duration capped at 120s (unauthenticated user limit).
 
     Benchmarks (actual measured times):
-    Standard: 512+anim=10s, 512-anim=7s, 832+anim=20s, 1024=40s (30% safety margin)
-    Artistic: 640+anim=23s, 832+anim=45s, 832+anim+upscale=57s, 1024+anim+upscale=124s (40-50% safety margin)
-
-    Updated with larger margins for complex examples and to ensure completion of all 30 steps.
-    768px artistic with animation requires ~65s to complete all steps.
+    Standard: 512+anim=10s, 512-anim=7s, 832+anim=20s, 1024=40s
+    Artistic: 640+anim=23s, 832+anim=45s, 832+anim+upscale=57s, 1024+anim+upscale=124s
     """
     # Debug logging
-    print(f"[GPU DURATION DEBUG] Called with args={args}, kwargs keys={list(kwargs.keys()) if kwargs else 'None'}")
+    print(f"[GPU DURATION DEBUG] Called with args length={len(args)}, kwargs keys={list(kwargs.keys()) if kwargs else 'None'}")
 
-    # Extract only the parameters we need from kwargs
+    # Extract parameters from correct source (args vs kwargs)
+    # Function signature: generate_qr_code_unified(prompt, negative_prompt, text_input, input_type, image_size, ...)
+    # ZeroGPU passes some as positional args, some as kwargs
+    image_size = args[4] if len(args) > 4 else kwargs.get("image_size", 512)
     pipeline = kwargs.get("pipeline", "standard")
-    image_size = kwargs.get("image_size", 512)
     enable_animation = kwargs.get("enable_animation", True)
     enable_upscale = kwargs.get("enable_upscale", False)
 
     print(f"[GPU DURATION DEBUG] Extracted: pipeline={pipeline}, image_size={image_size}, enable_animation={enable_animation}, enable_upscale={enable_upscale}")
 
     if pipeline == "standard":
-        # Standard pipeline benchmarks (with 30% safety margin)
+        # Standard pipeline benchmarks (with 20% safety margin)
         if image_size <= 512:
-            duration = 13 if enable_animation else 10
+            duration = 12 if enable_animation else 9
         elif image_size <= 640:
-            duration = 20 if enable_animation else 15
+            duration = 18 if enable_animation else 13
         elif image_size <= 768:
-            duration = 25 if enable_animation else 18
+            duration = 22 if enable_animation else 16
         elif image_size <= 832:
-            duration = 30 if enable_animation else 22  # Increased for 832px
+            duration = 24 if enable_animation else 17
         else:  # 1024
-            duration = 52 if enable_animation else 38
+            duration = 48 if enable_animation else 34
     else:  # artistic
-        # Artistic pipeline benchmarks (with 40-50% safety margin for complex prompts)
+        # Artistic pipeline benchmarks (with 25% safety margin)
         if image_size <= 512:
-            # Extrapolated from 640 benchmark
-            duration = 30 if not enable_upscale else 45
+            # Extrapolated from 640 benchmark (~18s base)
+            duration = 22 if not enable_upscale else 38
         elif image_size <= 640:
-            duration = 40 if not enable_upscale else 58
+            duration = 28 if not enable_upscale else 50
         elif image_size <= 768:
-            # Increased for complex examples (poker, rice fields at 704-768) - needs ~65s for 30 steps with animation
-            duration = 65 if not enable_upscale else 85
+            # Interpolated between 640 and 832 (~35s base)
+            duration = 44 if not enable_upscale else 65
         elif image_size <= 832:
-            duration = 75 if not enable_upscale else 95
+            duration = 56 if not enable_upscale else 72
         else:  # 1024
-            # Increased for complex examples (mediterranean garden at 1024)
-            duration = 100 if not enable_upscale else 120  # Worst case measured at 124s
+            # Extrapolated from 832 (~75s base)
+            duration = 94 if not enable_upscale else 120  # Worst case measured at 124s
 
     # Cap at 120 seconds (unauthenticated user limit)
     final_duration = min(duration, 120)
