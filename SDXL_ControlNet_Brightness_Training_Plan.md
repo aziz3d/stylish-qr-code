@@ -4,11 +4,17 @@
 
 Training a brightness ControlNet for SDXL is **technically feasible and recommended** as the critical upgrade path from SD 1.5 to SDXL for QR code generation. This model is essential because no public SDXL brightness ControlNet exists.
 
-**Key Estimates:**
-- **Time**: 50-150 hours (depending on dataset size and GPU)
-- **Cost**: $75-$300 (Lightning AI credits)
+**Key Estimates (Updated December 2024 - Single H100 GPU):**
+- **Time**: 45 minutes (99k samples) to 24 hours (3M samples) on single H100
+- **Cost**: $13 (99k) to $418 (3M) in GPU credits
+- **Platform**: Lightning.ai with optional Pro plan ($20/month for multi-GPU)
 - **Priority**: High - enables SDXL migration for QR code generation
 - **Complexity**: Medium - well-documented training pipeline with reference implementation
+
+**Recommended Path:**
+- Start with single H100 for 99k samples (~45 min, $13)
+- If successful, optionally upgrade to Pro plan for faster 3M training
+- Total investment: $13-$138 depending on training size and plan choice
 
 ## Background Context
 
@@ -47,59 +53,125 @@ Training a brightness ControlNet for SDXL is **technically feasible and recommen
 
 **Assessment**: While Flux Schnell has an attractive license, the lack of proven ControlNet training pipeline makes it **high-risk**. SDXL remains the **proven, practical choice**.
 
-## Hardware Selection: Why H100 is the Clear Winner
+## Hardware Selection & Platform Strategy
 
-### GPU Comparison Analysis (RunPod Pricing, December 2024)
+### Lightning.ai Pricing Tiers (December 2024)
 
-After analyzing current cloud GPU pricing and performance, **H100 is both the fastest AND cheapest option** for ControlNet training:
+Lightning.ai offers different tiers with varying multi-GPU capabilities:
 
-#### Raw Performance Data
+| Plan | Cost | Multi-GPU | Max GPUs | Credits Included | Best For |
+|------|------|-----------|----------|------------------|----------|
+| **Free** | $0 | ❌ No | 1 | 15/month | Quick 99k test |
+| **Pro** | **$20/month** (annual) | ✅ Yes | 6 | 240/year (~$13/mo) | **Recommended** |
+| Teams | $119/month (annual) | ✅ Yes | 12 | 600/year | Large teams |
 
-| GPU | TFLOPs | Memory | CPUs | Cost/hr | Availability |
-|-----|--------|--------|------|---------|--------------|
-| T4 | 125 | 16GB | 8 | $0.33 | 3 min wait |
-| L4 | 121 | 24GB | 8 | $0.47 | 2 min wait |
-| L40S | 362 | 48GB | 16 | $1.90 | 2 min wait |
-| A100 | 312 | 40GB | 96 | $11.96 | 2 min wait |
-| **H100** | **1979** | **80GB** | **192** | **$17.42** | **4 min wait** |
-| H200 | 1979 | 141GB | 192 | $25.63 | 3 min wait |
+**Pro Plan Benefits:**
+- Only **$20/month** if paid annually ($240/year vs $600 monthly)
+- Includes **240 credits/year** = ~$13 of free GPU time
+- **Net cost: ~$7/month** after credits
+- Multi-GPU training up to 6 GPUs
+- Can cancel after training completes
 
-#### Cost Efficiency Analysis
+### GPU Comparison Analysis (Lightning.ai)
 
-**The Math:**
-- H100 has **6.3× the compute power** of A100 (1979 vs 312 TFLOPs)
-- H100 costs only **1.46× more** per hour ($17.42 vs $11.96)
-- **Net result: 4.3× better cost efficiency** (6.3 ÷ 1.46)
+**Single GPU Performance:**
 
-**Real-World Training Times (99k samples, 8 GPUs):**
+| GPU | TFLOPs | Memory | Cost/hr | 99k Time | 99k Cost | 3M Time | 3M Cost |
+|-----|--------|--------|---------|----------|----------|---------|---------|
+| A100 | 312 | 40GB | ~$1.50 | 4-6 hours | $6-9 | 120-180 hours | $180-270 |
+| **H100** | **1979** | **80GB** | **~$2.50** | **45 min** | **$1.88** | **24 hours** | **$60** |
 
-| GPU | Duration | Cost/hr × 8 GPUs | Total Cost | Notes |
-|-----|----------|------------------|------------|-------|
-| A100 | 4-6 hours | $95.68 | **$382-$574** | Old baseline |
-| **H100** | **38-57 min** | **$139.36** | **$105-$166** | **Winner** |
-| L40S | ~12 hours | $15.20 | $182 | Slower but cheaper/hr |
+**Cost Efficiency:**
+- H100 is **6.3× faster** than A100 (1979 vs 312 TFLOPs)
+- H100 costs **1.67× more** per hour on Lightning.ai
+- **Net result: 3.8× better cost efficiency**
 
-**Key Takeaways:**
-1. ✅ H100 saves **$216-$408 per training run**
-2. ✅ H100 completes in **under 1 hour** vs 4-6 hours on A100
-3. ✅ Can run **6-12 experiments per day** on H100 vs 1-2 on A100
-4. ✅ 80GB VRAM allows **larger batch sizes** = better convergence
-5. ✅ Multi-GPU scaling is more efficient on H100
+### Single vs Multi-GPU: Should You Get Pro Plan?
 
-**Why H100 Wins:**
-- **Not just faster** - it's cheaper per training run despite higher hourly rate
-- **Iteration speed** - test multiple hyperparameters in same day
-- **Resource efficiency** - less total GPU-hours consumed
+#### Option A: Free Plan (Single H100)
 
-### Revised Training Timeline (H100 8×GPU Configuration)
+| Training Size | Duration | GPU Cost | Total Cost | Timeline |
+|---------------|----------|----------|------------|----------|
+| 99k samples | 45 min | $1.88 | **$1.88** | Same day |
+| 500k samples | 4 hours | $10 | **$10** | Same day |
+| 3M samples | 24 hours | $60 | **$60** | 1-2 days |
+
+**Pros:**
+- ✅ $0 subscription cost
+- ✅ Very cheap for 99k testing
+- ✅ Good for one-off training
+
+**Cons:**
+- ❌ 24 hours for 3M training (must babysit)
+- ❌ Can't test multiple hyperparameters quickly
+- ❌ Limited to 15 free credits/month
+
+#### Option B: Pro Plan (6× H100)
+
+| Training Size | Duration | GPU Cost | Subscription | Total Cost | Timeline |
+|---------------|----------|----------|--------------|------------|----------|
+| 99k samples | **7.5 min** | $1.88 | $20 | **$21.88** | Minutes |
+| 500k samples | **40 min** | $10 | $20 | **$30** | Same hour |
+| 3M samples | **4 hours** | $60 | $20 | **$80** | Same day |
+
+**Multi-GPU costs same because:**
+- 6× GPUs = 6× faster
+- 6× GPUs = 6× more expensive per hour
+- Net: Same total GPU cost, much faster completion
+
+**Pros:**
+- ✅ 3M training finishes in 4 hours (vs 24)
+- ✅ Can test 3-4 hyperparameter configs in one day
+- ✅ Includes 240 credits/year (~$13 value)
+- ✅ Real net cost: $7/month after credits
+- ✅ Can cancel after training done
+
+**Cons:**
+- ❌ $20 upfront cost (annual commitment)
+
+### Recommendation Matrix
+
+**If you're doing ONE 99k training run:**
+- ✅ **Use Free tier** ($1.88 total, 45 min)
+- Skip Pro plan - not worth $20 for 7.5 min vs 45 min
+
+**If you're doing 500k OR 3M training:**
+- ✅ **Get Pro plan** ($20/month)
+- 3M: 4 hours vs 24 hours = worth it
+- Can test multiple configs same day
+- Net cost after credits: ~$7/month
+
+**If you're doing multiple experiments:**
+- ✅ **Definitely get Pro plan**
+- Test 99k + 500k + 3M all in one day
+- Total time: ~5 hours vs 30+ hours
+- Total cost: $20 + ~$72 GPU = $92
+- Cancel Pro after training complete
+
+**Most Cost-Effective Strategy:**
+1. Start with **Free tier** for 99k test ($1.88, 45 min)
+2. If results promising, upgrade to **Pro** for 3M training
+3. Run full training in 4 hours
+4. Cancel Pro after done
+5. Total: $20 Pro + $60 GPU + $1.88 test = **$81.88**
+
+### Updated Training Timeline Estimates
+
+**Single H100 (Free Tier):**
 
 | Training Size | Duration | Total Cost | When to Use |
 |---------------|----------|------------|-------------|
-| **99k samples (quick test)** | 38-57 min | $105-$166 | Initial validation, hyperparameter tuning |
-| **500k samples (medium)** | ~3-4 hours | $418-$557 | Production quality, good balance |
-| **3M samples (full dataset)** | ~1.5-2.5 hours | $209-$348 | Maximum quality, research publication |
+| **99k samples** | 45 min | $1.88 | Quick validation, hyperparameter testing |
+| **500k samples** | 4 hours | $10 | Medium quality, budget option |
+| **3M samples** | 24 hours | $60 | Max quality, have patience |
 
-**Surprising insight:** With H100's massive parallelization, the full 3M dataset may actually train **faster per-sample** than smaller datasets due to better GPU utilization.
+**6× H100 (Pro Plan at $20/month):**
+
+| Training Size | Duration | Total Cost | When to Use |
+|---------------|----------|------------|-------------|
+| **99k samples** | 7.5 min | $21.88 | Ultra-fast iteration |
+| **500k samples** | 40 min | $30 | Production ready, same day |
+| **3M samples** | 4 hours | $80 | Best quality, same day results |
 
 ## Training Strategy
 
@@ -123,42 +195,52 @@ After analyzing current cloud GPU pricing and performance, **H100 is both the fa
 - SDXL has larger UNet architecture (~2.5GB vs 1.7GB for SD 1.5)
 - Expected slowdown: 2-3× compared to SD 1.5 training
 
-**Time Estimates for 99k Training Samples:**
+**Time Estimates for 99k Training Samples (Lightning.ai Single H100):**
 
-## GPU Performance Analysis (Based on RunPod Pricing - December 2024)
+## Calculation Methodology
 
-| GPU | TFLOPs | Cost/hr | Est. Duration | Total Cost | Speed vs A100 | Cost Efficiency |
-|-----|--------|---------|---------------|------------|---------------|-----------------|
-| L4 | 121 | $0.47 | 30-40 hours | $14-19 | 0.39x | 0.83x |
-| L40S | 362 | $1.90 | 10-13 hours | $19-25 | 1.16x | 0.61x |
-| A100 | 312 | $11.96 | 4-6 hours | $48-72 | 1x (baseline) | 1x |
-| **H100** | **1979** | **$17.42** | **38-57 min** | **$11-17** | **6.3x faster** | **4.3x better** |
-| H200 | 1979 | $25.63 | 38-57 min | $16-24 | 6.3x faster | 3.0x better |
+**Baseline Reference:**
+- Latentcat article: 100k samples on A6000 = 13 hours (SD 1.5)
+- SDXL overhead: 13h × 2.5 (larger architecture) = ~32.5 hours for 100k
+- A6000 ≈ A100 in performance (~300-312 TFLOPs)
 
-**Key Insights:**
-- **H100 is 6.3x faster than A100** (1979 vs 312 TFLOPs)
-- **H100 costs only 1.46x more** than A100 ($17.42 vs $11.96/hr)
-- **Net result: 4.3x better cost efficiency** (6.3x speed / 1.46x cost)
-- **H100 completes in under 1 hour** vs 4-6 hours on A100
-- **H100 saves ~$60 per training run** ($11-17 vs $48-72)
+**Scaling to H100:**
+- A100: 312 TFLOPs → ~4-6 hours for 99k samples
+- H100: 1979 TFLOPs → 6.3× faster
+- **H100 single GPU: ~38-57 minutes for 99k samples**
 
-**Calculation Methodology:**
-- Latentcat baseline: 100k samples on A6000 = 13 hours (SD 1.5)
-- SDXL overhead: 13h × 2.5 (larger architecture) = ~32.5 hours for 100k on A6000
-- A6000 TFLOPs: ~300 (similar to A100)
-- Scaling by TFLOPs: A100 (312) ≈ 4-6 hours, H100 (1979) ≈ 38-57 minutes
+**Multi-GPU Scaling (Pro Plan):**
+- 6× H100 GPUs = 6× faster = ~7.5 minutes for 99k
+- Total cost stays same (6× faster but 6× more expensive/hour)
 
-**Updated Recommended Configuration:**
-- **🏆 BEST: 99k samples on H100 (8 GPUs)**: ~$140, ~45 minutes
-  - **Total cost breakdown**: $17.42/hr × 8 GPUs × 0.75 hours = ~$105-140
-  - Fastest training time
-  - Most cost-efficient option
-  - 80GB VRAM allows larger batch sizes
-  - Can complete multiple training experiments in one day
-- **Budget: 99k samples on L40S**: ~$20, ~12 hours
-  - Good middle ground for cost-conscious training
-- **Legacy: 99k samples on A100**: ~$380-$575, ~4-6 hours
-  - Not recommended - H100 is both faster AND cheaper
+## Recommended Configurations
+
+**🏆 OPTION 1: Free Tier (Single H100) - Best for Testing**
+- **99k samples**: 45 min, $1.88
+- **500k samples**: 4 hours, $10
+- **3M samples**: 24 hours, $60
+- **Best for:** One-off training, budget-conscious, have patience
+
+**🚀 OPTION 2: Pro Plan (6× H100) - Best for Production**  
+- **Subscription**: $20/month (annual), includes $13 credits = **$7 net cost**
+- **99k samples**: 7.5 min, $21.88 total ($1.88 GPU + $20 sub)
+- **500k samples**: 40 min, $30 total ($10 GPU + $20 sub)
+- **3M samples**: 4 hours, $80 total ($60 GPU + $20 sub)
+- **Best for:** Multiple experiments, 3M training, need results same day
+
+**Cost Comparison Summary:**
+
+| Scenario | Free Tier | Pro Plan | Savings (Pro) |
+|----------|-----------|----------|---------------|
+| Single 99k test | $1.88 | $21.88 | ❌ $20 more |
+| Single 3M training | $60 | $80 | ❌ $20 more |
+| 99k + 500k + 3M | $71.88 (30 hours) | $92 (5 hours) | ✅ Save 25 hours |
+| 3+ experiments | $71.88+ (30+ hours) | $92 (5-6 hours) | ✅ Save 24+ hours |
+
+**Recommendation:**
+- For single 99k test: **Use Free Tier** (not worth $20 for speed)
+- For 3M training: **Consider Pro** (4 hrs vs 24 hrs = big difference)
+- For multiple runs: **Definitely Pro** (can test everything in one day)
 
 ## Technical Implementation Plan
 
@@ -452,13 +534,18 @@ The training command (shown in Phase 3 below) will now:
 **Total preparation cost:** ~$0.75-$1.50 (vs $35 for full training)
 **Why worth it:** Catches setup issues early without wasting 25 hours of GPU time
 
-**Hardware Selection (Updated Recommendations):**
-- **Budget**: L40S (48GB VRAM, $1.90/hr) - decent speed, low cost
-- **🏆 RECOMMENDED**: 8× H100 (80GB VRAM, $17.42/hr × 8) - **fastest AND most cost-efficient**
-  - Completes 99k training in ~45 minutes for ~$140
-  - Can run multiple experiments in a single day
-  - 80GB VRAM allows maximum batch sizes
-- **Not Recommended**: Single A100 - slower and more expensive than H100 for this workload
+**Hardware Selection (Updated for Lightning.ai):**
+- **🏆 RECOMMENDED FOR TESTING**: Single H100 on Free Tier
+  - 99k training in 45 min for $1.88
+  - Perfect for validation and hyperparameter tuning
+  - 80GB VRAM allows good batch sizes
+  - No subscription required
+- **🚀 RECOMMENDED FOR PRODUCTION**: 6× H100 on Pro Plan ($20/month annual)
+  - 3M training in 4 hours for $80 total
+  - Can test multiple configs in one day
+  - Net cost: ~$7/month after included credits
+  - Cancel subscription after training complete
+- **Not Recommended**: A100 - H100 is faster and more cost-efficient
 
 ### Phase 2: Dataset Preparation
 
@@ -637,30 +724,62 @@ The settings above are optimized for memory efficiency:
 ```
 This keeps effective batch size = 8 × 4 = 32 (half of 64), but still works well.
 
-### Full 3M Dataset Training on H100 80GB
+### Full 3M Dataset Training Options
 
 **For maximum quality training on the complete dataset:**
 
-#### Hardware & Cost Estimates (Updated with 8×H100 Configuration)
+#### Option A: Single H100 (Free Tier)
 
 | Metric | Value |
 |--------|-------|
-| GPU | 8× H100 80GB ($17.42/hr × 8 = $139.36/hr) |
+| GPU | 1× H100 80GB (~$2.50/hr on Lightning.ai) |
 | Dataset | 2,999,000 training + 1,000 validation |
-| Estimated Duration | **~1.5-2.5 hours** (vs 450-600 hours on single GPU) |
-| Estimated Cost | **$209-$348** |
+| Estimated Duration | **~24 hours** |
+| Estimated Cost | **$60 GPU credits** |
+| Subscription Cost | **$0** (Free tier) |
+| **Total Cost** | **$60** |
 | Checkpoints | Every 5000 steps (~every 320k samples) |
 
-**Scaling Calculation:**
-- 99k samples on 8×H100: ~45 minutes
-- 3M samples = 30.3× more data
-- Estimated time: 45 min × 30.3 = ~1,364 minutes = **22.7 hours on 8×H100**
-- However, with better parallelization at scale: **~1.5-2.5 hours realistic**
+**Pros:**
+- ✅ Lowest total cost
+- ✅ No subscription required
+- ✅ Good for one-time training
 
-**Cost Comparison (Revised):**
-- 99k samples on 8×H100: ~$140, 45 minutes
-- 2.999M samples on 8×H100: ~$280, ~2 hours (30× more data)
-- **Massive time savings:** 2 hours vs 19-25 days on single GPU
+**Cons:**
+- ❌ 24 hours training time (must monitor)
+- ❌ Can't quickly iterate if issues arise
+
+#### Option B: 6× H100 (Pro Plan - $20/month)
+
+| Metric | Value |
+|--------|-------|
+| GPU | 6× H100 80GB (~$2.50/hr × 6 = $15/hr) |
+| Dataset | 2,999,000 training + 1,000 validation |
+| Estimated Duration | **~4 hours** |
+| Estimated Cost | **$60 GPU credits** |
+| Subscription Cost | **$20/month** (annual billing) |
+| **Total Cost** | **$80** |
+| **Net Cost** | **$67** (after $13 annual credit value) |
+| Checkpoints | Every 5000 steps (~every 320k samples) |
+
+**Pros:**
+- ✅ Completes in 4 hours vs 24 hours
+- ✅ Can run same-day if needed
+- ✅ Can test multiple configs quickly
+- ✅ Net cost only $7/month after credits
+- ✅ Can cancel after training
+
+**Cons:**
+- ❌ $20 upfront subscription cost
+
+**Scaling Math:**
+- Single H100: 99k in 45 min → 3M in 45 min × 30.3 = ~24 hours
+- 6× H100: 24 hours ÷ 6 = ~4 hours
+
+**Cost Comparison:**
+- Free tier: $60, 24 hours wait
+- Pro plan: $80, 4 hours wait
+- **Price difference: $20 to save 20 hours**
 
 #### Adjusted Training Command
 
@@ -941,20 +1060,44 @@ python scripts/upload_to_hub.py \
 
 ## Cost-Benefit Analysis
 
-### Investment Required (Updated for H100)
+### Investment Required (Updated for Single H100)
+
+**Strategy A: Free Tier (99k Quick Test)**
 | Component | Cost/Time |
 |-----------|-----------|
-| GPU Credits (99k samples, 2 epochs, H100 8×GPUs) | $105-140 |
+| GPU Credits (99k samples, 2 epochs, single H100) | $1.88 |
 | Setup Time | 1-2 hours |
-| Training Duration | **38-57 minutes** ⚡ |
+| Training Duration | **45 minutes** ⚡ |
 | Testing & Validation | 2-3 hours |
-| **Total Time** | **~4-6 hours** (same day!) |
-| **Total Cost** | **$140** |
+| **Total Time** | **~4-6 hours** (same day) |
+| **Total Cost** | **$1.88** |
 
-**Cost Comparison:**
-- Old estimate (A100): $382-$574, 4-6 hours
-- New estimate (H100): $105-140, 45 minutes
-- **Savings: ~$440 and 4-5 hours** per training run
+**Strategy B: Pro Plan (Full 3M Training)**
+| Component | Cost/Time |
+|-----------|-----------|
+| Pro Subscription (can cancel after) | $20/month |
+| Included credits value | -$13 (240 credits/year) |
+| GPU Credits (3M samples, 1 epoch, 6×H100) | $60 |
+| Setup Time | 1-2 hours |
+| Training Duration | **4 hours** ⚡ |
+| Testing & Validation | 2-3 hours |
+| **Total Time** | **~8 hours** (same day) |
+| **Total Cost** | **$80** ($20 sub + $60 GPU) |
+| **Net Cost** | **$67** (after annual credit value) |
+
+**Strategy C: All-in-One (Pro Plan, Test Everything)**
+| Component | Cost/Time |
+|-----------|-----------|
+| Pro Subscription | $20/month |
+| 99k test (6×H100) | $1.88 (7.5 min) |
+| 500k training (6×H100) | $10 (40 min) |
+| 3M training (6×H100) | $60 (4 hours) |
+| **Total GPU Time** | **~5 hours** |
+| **Total GPU Cost** | **$71.88** |
+| **Total with Sub** | **$91.88** |
+| **Net after credits** | **$78.88** |
+
+**Recommendation:** Start with Strategy A ($1.88), upgrade to Strategy B if promising
 
 ### Value Delivered
 1. **Unblocks SDXL Migration**: Enables upgrade from SD 1.5 to higher quality SDXL
@@ -1131,43 +1274,87 @@ If you decide to pursue Flux Schnell ControlNet training despite the risks:
 - **Flux Architecture Discussion**: [GitHub Issue #408](https://github.com/black-forest-labs/flux/issues/408)
 - **License Comparison**: [Flux Model Guide](https://stable-diffusion-art.com/flux/)
 
-## Final Recommendation (Updated December 2024)
+## Final Recommendation (Updated December 2024 - Lightning.ai)
 
-**Proceed with SDXL Brightness ControlNet Training on H100**
+**Proceed with SDXL Brightness ControlNet Training on Single H100 (Free Tier)**
 
-Based on latest GPU pricing analysis, the recommended path is:
+Based on Lightning.ai pricing and multi-GPU requirements, the recommended path is:
 
-1. **Target**: Train brightness ControlNet for SDXL using the 3M grayscale dataset
-2. **Hardware**: 8× H100 80GB GPUs on RunPod
-3. **Approach**: Start with 99k samples for validation (~45 min, $140)
-4. **Full Training**: If 99k successful, run full 3M dataset (~2 hours, $280)
-5. **Total Cost**: ~$420 for both runs (vs $900+ on older hardware)
-6. **Total Duration**: **~3 hours of GPU time** (can complete in single day!)
-7. **Risk**: Low - proven training pipeline with community support
-8. **Outcome**: Production-ready SDXL brightness ControlNet enabling QR code generation upgrade
+### Phase 1: Quick Validation (Free Tier)
+1. **Start with 99k samples on single H100**
+   - Cost: $1.88 in GPU credits
+   - Duration: 45 minutes
+   - Platform: Lightning.ai Free tier
+   - Purpose: Validate training pipeline and quality
 
-### Why This Path (Updated)
+### Phase 2: Production Training (Choose Based on Phase 1)
 
-- **Game-Changing Hardware**: H100 makes training 6.3× faster AND cheaper than A100
-- **Same-Day Results**: Complete full training pipeline in hours, not days
-- **Multiple Iterations**: Can test 3-4 hyperparameter configurations in one day
-- **Proven Pipeline**: HuggingFace Diffusers provides battle-tested training script
+**Option A: Budget Approach (Free Tier)**
+- Run full 3M dataset on single H100
+- Cost: $60 GPU credits, $0 subscription
+- Duration: 24 hours
+- Total: $60
+- Best for: One-time training, have patience
+
+**Option B: Speed Approach (Pro Plan)**
+- Upgrade to Pro plan ($20/month annual)
+- Run full 3M dataset on 6× H100
+- Cost: $60 GPU + $20 subscription = $80
+- Net cost: $67 (after $13 annual credit value)
+- Duration: 4 hours
+- Best for: Need results same day, may iterate
+
+### Recommended Strategy
+
+**Most Cost-Effective Path:**
+1. **Day 1 Morning**: Run 99k test on Free tier ($1.88, 45 min)
+2. **Day 1 Afternoon**: Evaluate results
+3. **If promising**: 
+   - **Budget route**: Start 3M on Free tier ($60, 24 hrs) → Total: $61.88
+   - **Speed route**: Upgrade to Pro, run 3M ($80, 4 hrs) → Total: $81.88
+4. **Cancel Pro** after training if using speed route
+
+### Why This Path
+
+- **Low Risk Entry**: Only $1.88 to validate entire pipeline
+- **Flexible Scaling**: Choose speed vs cost based on results
+- **Proven Pipeline**: HuggingFace Diffusers battle-tested script
 - **Reference Success**: Original SD 1.5 model trained on same dataset
-- **Low Risk**: Well-documented process with active community
-- **Cost-Effective**: $420 total investment (vs $900+ on A100)
-- **Rapid Iteration**: Checkpoint every 1500 steps with near-instant feedback
+- **H100 Advantage**: 6.3× faster than A100 even on single GPU
+- **Cost-Effective**: $62-$82 total (vs $900+ on older plans)
 - **Unblocks Migration**: Enables full SDXL upgrade from SD 1.5
 
 ### Cost Breakdown Comparison
 
-| Approach | Hardware | Duration | Cost | Timeline |
-|----------|----------|----------|------|----------|
-| **Old Plan** | A100 | 4-5 days | $900-$1,200 | 1 week |
-| **NEW: H100 Quick Test** | 8× H100 | 45 min | $140 | Same day |
-| **NEW: H100 Full Training** | 8× H100 | ~2 hours | $280 | Same day |
-| **NEW: Total** | 8× H100 | **~3 hours** | **$420** | **1 day** |
+| Approach | Hardware | Duration | GPU Cost | Sub Cost | Total | Timeline |
+|----------|----------|----------|----------|----------|-------|----------|
+| **Old Plan (A100)** | Single A100 | 180 hours | $900-1,200 | $0 | $900-1,200 | 1 week |
+| **NEW: Free Tier** | Single H100 | 24.75 hours | $61.88 | $0 | **$61.88** | 2 days |
+| **NEW: Pro Plan** | 6× H100 | 4.75 hours | $61.88 | $20 | **$81.88** | 1 day |
 
-**Savings: $480-$780 and 4-6 days** compared to original plan!
+**Savings vs Old Plan:**
+- Free tier: Save $838-$1,138 and 6 days
+- Pro plan: Save $818-$1,118 and 6 days
+
+### Pro Plan ROI Analysis
+
+**When is Pro worth it?**
+- $20 extra to save 20 hours (24h → 4h)
+- = **$1/hour saved**
+- Plus: Can test multiple hyperparameters same day
+- Plus: Includes $13/year in credits
+
+**Get Pro if:**
+- ✅ You value time over $1/hour
+- ✅ Planning to iterate on hyperparameters
+- ✅ Need results urgently
+- ✅ Want to test 99k + 500k + 3M in one session
+
+**Skip Pro if:**
+- ✅ Doing one-time training only
+- ✅ Can wait 24 hours
+- ✅ Budget constrained
+- ✅ 99k test was sufficient
 
 ### Next Steps
 
