@@ -3272,6 +3272,9 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                             show_download_button=False,
                         )
 
+                        # State to track currently selected example index
+                        current_example_index = gr.State(value=None)
+
                         # The output image for artistic QR (initially hidden)
                         artistic_output_image = gr.Image(
                             label="Generated Artistic QR Code",
@@ -3404,25 +3407,55 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                 )
 
                 # Event handler for "Try Another Example" button
-                def show_examples_again():
-                    """Show the gallery again and hide output"""
+                def show_examples_again(current_idx):
+                    """Show the gallery with a random different example and load its settings"""
+                    # Pick a random index different from current
+                    available = [i for i in range(len(ARTISTIC_EXAMPLES)) if i != current_idx]
+                    new_idx = random.choice(available) if available else 0
+                    example = ARTISTIC_EXAMPLES[new_idx]
                     return (
                         gr.update(visible=False),  # Hide output image
-                        "",  # Clear error message
+                        "Settings loaded! Click 'Generate Artistic QR' to create your QR code",  # Status message
                         gr.update(visible=False),  # Hide settings accordion
-                        gr.update(visible=True, selected_index=None),  # Show gallery with no selection
+                        gr.update(visible=True, selected_index=new_idx),  # Show gallery with random selection
                         gr.update(visible=False),  # Hide this button
+                        # Load the example settings
+                        example["prompt"],
+                        example["text_input"],
+                        example["input_type"],
+                        example["image_size"],
+                        example["border_size"],
+                        example["error_correction"],
+                        example["module_size"],
+                        example["module_drawer"],
+                        example["use_custom_seed"],
+                        example["seed"],
+                        example["sag_blur_sigma"],
+                        new_idx,  # Update current example index
                     )
 
                 show_examples_btn.click(
                     fn=show_examples_again,
-                    inputs=None,
+                    inputs=[current_example_index],
                     outputs=[
                         artistic_output_image,
                         artistic_error_message,
                         settings_accordion_artistic,
                         example_gallery,
                         show_examples_btn,
+                        # Settings outputs
+                        artistic_prompt_input,
+                        artistic_text_input,
+                        artistic_input_type,
+                        artistic_image_size,
+                        artistic_border_size,
+                        artistic_error_correction,
+                        artistic_module_size,
+                        artistic_module_drawer,
+                        artistic_use_custom_seed,
+                        artistic_seed,
+                        sag_blur_sigma,
+                        current_example_index,
                     ],
                 )
 
@@ -3445,6 +3478,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         gr.update(visible=False),  # Hide output image
                         "Settings loaded! Click 'Generate Artistic QR' to create your QR code",  # Show in Status/Errors
                         gr.update(visible=False),  # Hide settings accordion
+                        evt.index,  # Store the selected example index
                     )
 
                 # Attach the event handler
@@ -3466,6 +3500,7 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                         artistic_output_image,  # Reset visibility
                         artistic_error_message,  # Show status message
                         settings_accordion_artistic,  # Reset visibility
+                        current_example_index,  # Store the selected example index
                     ],
                 )
 
