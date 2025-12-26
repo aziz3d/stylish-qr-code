@@ -724,6 +724,245 @@ The settings above are optimized for memory efficiency:
 ```
 This keeps effective batch size = 8 × 4 = 32 (half of 64), but still works well.
 
+### Accelerate Configuration for Multi-GPU Training
+
+**Important:** Multi-GPU training on Lightning.ai requires the Pro plan ($20/month annual).
+
+#### Single GPU (Free Tier) - No Configuration Needed
+
+For single GPU training on Free tier, `accelerate launch` works without any configuration:
+
+```bash
+# No accelerate config needed - auto-detects single GPU
+accelerate launch train_controlnet_sdxl.py [args...]
+```
+
+#### Multi-GPU (Pro Plan) - Configure Before Training
+
+For 6× H100 training on Pro plan, configure accelerate once:
+
+```bash
+# Run configuration wizard
+accelerate config
+```
+
+**Configuration Options for 6× H100:**
+
+```yaml
+compute_environment: LOCAL_MACHINE
+distributed_type: MULTI_GPU  # Use DataParallel for multiple GPUs
+num_machines: 1  # Single machine with 6 GPUs
+num_processes: 6  # One process per GPU
+gpu_ids: all  # Use all available GPUs
+mixed_precision: fp16  # Match training script
+use_cpu: false
+dynamo_backend: NO  # Disable torch.compile for compatibility
+```
+
+**Quick Config (Non-Interactive):**
+
+```bash
+# Create accelerate config file directly
+cat > ~/.cache/huggingface/accelerate/default_config.yaml << 'EOF'
+compute_environment: LOCAL_MACHINE
+distributed_type: MULTI_GPU
+num_machines: 1
+num_processes: 6
+gpu_ids: all
+mixed_precision: fp16
+use_cpu: false
+dynamo_backend: NO
+EOF
+```
+
+**Verify Configuration:**
+
+```bash
+# Check configuration
+accelerate env
+
+# Test multi-GPU setup
+accelerate test
+```
+
+**Launch Multi-GPU Training:**
+
+```bash
+# With configuration file, launch works same as single GPU
+accelerate launch train_controlnet_sdxl.py [args...]
+
+# Or specify config explicitly
+accelerate launch --config_file ~/.cache/huggingface/accelerate/default_config.yaml \
+  train_controlnet_sdxl.py [args...]
+```
+
+### H100-Optimized Training Parameters
+
+The H100 GPU has **80GB VRAM** and **1979 TFLOPs**, allowing for larger batch sizes and better optimization than A100.
+
+#### Optimal Batch Size for H100
+
+**Default settings (designed for A100 40GB):**
+```bash
+--train_batch_size=16
+--gradient_accumulation_steps=4
+# Effective batch size: 16 × 4 = 64 samples/step
+# VRAM usage: ~22-28GB
+```
+
+**H100-optimized settings (80GB VRAM):**
+```bash
+--train_batch_size=32  # 2× larger than A100
+--gradient_accumulation_steps=4
+# Effective batch size: 32 × 4 = 128 samples/step
+# VRAM usage: ~40-48GB (still plenty of headroom)
+```
+
+**Aggressive H100 settings (maximum throughput):**
+```bash
+--train_batch_size=48  # 3× larger than A100
+--gradient_accumulation_steps=2  # Reduce accumulation since batch is larger
+# Effective batch size: 48 × 2 = 96 samples/step
+# VRAM usage: ~55-65GB
+# Faster training due to fewer gradient accumulation steps
+```
+
+#### Single H100 Training Command (99k samples)
+
+**Optimized for H100 80GB:**
+
+```bash
+export MODEL_DIR="stabilityai/stable-diffusion-xl-base-1.0"
+export OUTPUT_DIR="./controlnet-brightness-sdxl-h100"
+
+accelerate launch train_controlnet_sdxl.py \
+  --pretrained_model_name_or_path=$MODEL_DIR \
+  --dataset_name="latentcat/grayscale_image_aesthetic_3M" \
+  --max_train_samples=99000 \
+  --conditioning_image_column="conditioning_image" \
+  --image_column="image" \
+  --caption_column="text" \
+  --output_dir=$OUTPUT_DIR \
+  --mixed_precision="fp16" \
+  --resolution=512 \
+  --learning_rate=1e-5 \
+  --train_batch_size=32 \
+  --gradient_accumulation_steps=4 \
+  --num_train_epochs=2 \
+  --checkpointing_steps=750 \
+  --validation_steps=750 \
+  --tracker_project_name="brightness-controlnet-sdxl-h100" \
+  --report_to="wandb" \
+  --enable_xformers_memory_efficient_attention \
+  --gradient_checkpointing \
+  --use_8bit_adam \
+  --dataloader_num_workers=8 \
+  --set_grads_to_none
+```
+
+**Key H100 Optimizations:**
+- `--train_batch_size=32` (vs 16 on A100) - 2× larger batches
+- `--gradient_accumulation_steps=4` - Effective batch = 128
+- `--checkpointing_steps=750` - More frequent (every ~96k samples)
+- `--dataloader_num_workers=8` - Faster data loading (H100 has 192 CPUs)
+- `--set_grads_to_none` - Faster than zero_grad() on modern GPUs
+
+**Expected Performance:**
+- Steps per epoch: 99,000 ÷ 128 = 773 steps
+- Total steps (2 epochs): ~1,546 steps
+- Training time: ~38-45 minutes on single H100
+- Checkpoints saved at: 750, 1500 steps
+
+#### 6× H100 Training Command (3M samples) - Pro Plan
+
+**For Pro plan multi-GPU training:**
+
+```bash
+export MODEL_DIR="stabilityai/stable-diffusion-xl-base-1.0"
+export OUTPUT_DIR="./controlnet-brightness-sdxl-multi-h100"
+
+# Configure accelerate for 6 GPUs (if not done already)
+accelerate config  # Select MULTI_GPU, 6 processes
+
+# Launch training
+accelerate launch train_controlnet_sdxl.py \
+  --pretrained_model_name_or_path=$MODEL_DIR \
+  --dataset_name="latentcat/grayscale_image_aesthetic_3M" \
+  --max_train_samples=2999000 \
+  --conditioning_image_column="conditioning_image" \
+  --image_column="image" \
+  --caption_column="text" \
+  --output_dir=$OUTPUT_DIR \
+  --mixed_precision="fp16" \
+  --resolution=512 \
+  --learning_rate=1e-5 \
+  --train_batch_size=24 \
+  --gradient_accumulation_steps=2 \
+  --num_train_epochs=1 \
+  --checkpointing_steps=2500 \
+  --validation_steps=2500 \
+  --tracker_project_name="brightness-controlnet-sdxl-3M" \
+  --report_to="wandb" \
+  --enable_xformers_memory_efficient_attention \
+  --gradient_checkpointing \
+  --use_8bit_adam \
+  --dataloader_num_workers=8 \
+  --set_grads_to_none \
+  --resume_from_checkpoint="latest"
+```
+
+**Multi-GPU Optimizations:**
+- `--train_batch_size=24` per GPU × 6 GPUs = 144 samples per step (before accumulation)
+- `--gradient_accumulation_steps=2` - Effective batch = 144 × 2 = 288
+- `--checkpointing_steps=2500` - Save every ~720k samples
+- `--resume_from_checkpoint="latest"` - Auto-resume if interrupted
+
+**Expected Performance:**
+- Effective batch size: 288 samples/step
+- Steps per epoch: 2,999,000 ÷ 288 = ~10,413 steps
+- Training time: ~4 hours on 6× H100
+- Checkpoints: 2500, 5000, 7500, 10000 steps + final
+
+#### Batch Size Selection Guide
+
+| GPU Config | VRAM | Recommended batch_size | grad_accum_steps | Effective Batch | Training Speed |
+|------------|------|------------------------|------------------|-----------------|----------------|
+| Single L4 | 24GB | 8 | 4 | 32 | Slow (baseline) |
+| Single A100 | 40GB | 16 | 4 | 64 | 2× faster than L4 |
+| Single H100 | 80GB | 32 | 4 | 128 | 6× faster than L4 |
+| 6× H100 (Pro) | 480GB | 24/GPU | 2 | 288 | 36× faster than L4 |
+
+**Rule of Thumb:**
+- Larger `train_batch_size` = better GPU utilization, faster training
+- Larger `effective_batch_size` = more stable training, better convergence
+- H100 can handle 2-3× larger batch sizes than A100 with same settings
+
+#### Memory Optimization Tips
+
+**If you encounter OOM (Out of Memory) errors on H100:**
+
+1. **Reduce batch size incrementally:**
+   ```bash
+   --train_batch_size=32  # Start here
+   --train_batch_size=24  # If OOM
+   --train_batch_size=16  # If still OOM
+   ```
+
+2. **Enable additional memory optimizations:**
+   ```bash
+   --gradient_checkpointing \  # Already enabled
+   --use_8bit_adam \           # Already enabled
+   --enable_xformers_memory_efficient_attention \  # Already enabled
+   --set_grads_to_none \       # Use this instead of zero_grad()
+   ```
+
+3. **Use gradient accumulation to maintain effective batch size:**
+   ```bash
+   # If reducing from batch_size=32 to batch_size=16
+   --train_batch_size=16
+   --gradient_accumulation_steps=8  # Double accumulation to keep effective=128
+   ```
+
 ### Full 3M Dataset Training Options
 
 **For maximum quality training on the complete dataset:**
