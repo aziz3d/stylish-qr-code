@@ -1610,6 +1610,7 @@ def load_settings_from_json_artistic(json_string: str):
         use_custom_seed = params.get("use_custom_seed", True)
         seed = params.get("seed", 718313)
         enable_upscale = params.get("enable_upscale", False)
+        enable_animation = params.get("enable_animation", True)
         enable_freeu = params.get("enable_freeu", True)
         freeu_b1 = params.get("freeu_b1", 1.4)
         freeu_b2 = params.get("freeu_b2", 1.3)
@@ -1644,6 +1645,7 @@ def load_settings_from_json_artistic(json_string: str):
             use_custom_seed,
             seed,
             enable_upscale,
+            enable_animation,
             enable_freeu,
             freeu_b1,
             freeu_b2,
