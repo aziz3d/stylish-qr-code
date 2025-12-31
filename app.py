@@ -579,7 +579,7 @@ def compile_models_with_aoti():
 
 def get_dynamic_duration(*args, **kwargs):
     """
-    Calculate GPU duration based on benchmarks with 20-25% safety margin.
+    Calculate GPU duration based on benchmarks with 32-37.5% safety margin (+10% buffer).
     Max duration capped at 120s (unauthenticated user limit).
 
     Benchmarks (actual measured times):
@@ -600,32 +600,32 @@ def get_dynamic_duration(*args, **kwargs):
     print(f"[GPU DURATION DEBUG] Extracted: pipeline={pipeline}, image_size={image_size}, enable_animation={enable_animation}, enable_upscale={enable_upscale}")
 
     if pipeline == "standard":
-        # Standard pipeline benchmarks (with 20% safety margin)
+        # Standard pipeline benchmarks (with 32% safety margin = 20% + 10% buffer)
         if image_size <= 512:
-            duration = 12 if enable_animation else 9
+            duration = 13 if enable_animation else 10
         elif image_size <= 640:
-            duration = 18 if enable_animation else 13
+            duration = 20 if enable_animation else 14
         elif image_size <= 768:
-            duration = 22 if enable_animation else 16
+            duration = 24 if enable_animation else 18
         elif image_size <= 832:
-            duration = 24 if enable_animation else 17
+            duration = 26 if enable_animation else 19
         else:  # 1024
-            duration = 48 if enable_animation else 34
+            duration = 53 if enable_animation else 37
     else:  # artistic
-        # Artistic pipeline benchmarks (with 25% safety margin)
+        # Artistic pipeline benchmarks (with 37.5% safety margin = 25% + 10% buffer)
         if image_size <= 512:
             # Extrapolated from 640 benchmark (~18s base)
-            duration = 22 if not enable_upscale else 38
+            duration = 24 if not enable_upscale else 42
         elif image_size <= 640:
-            duration = 28 if not enable_upscale else 50
+            duration = 31 if not enable_upscale else 55
         elif image_size <= 768:
             # Interpolated between 640 and 832 (~35s base)
-            duration = 44 if not enable_upscale else 65
+            duration = 48 if not enable_upscale else 72
         elif image_size <= 832:
-            duration = 56 if not enable_upscale else 72
+            duration = 62 if not enable_upscale else 79
         else:  # 1024
             # Extrapolated from 832 (~75s base)
-            duration = 94 if not enable_upscale else 120  # Worst case measured at 124s
+            duration = 103 if not enable_upscale else 132  # Worst case measured at 124s
 
     # Cap at 120 seconds (unauthenticated user limit)
     final_duration = min(duration, 120)
