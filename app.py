@@ -141,7 +141,14 @@ def add_extra_model_paths() -> None:
         print(
             "Could not import load_extra_path_config from main.py. Looking in utils.extra_config instead."
         )
-        from utils.extra_config import load_extra_path_config
+        try:
+            from utils.extra_config import load_extra_path_config
+        except (ImportError, ModuleNotFoundError) as e:
+            print(
+                f"Could not import load_extra_path_config from utils.extra_config either: {e}"
+            )
+            print("Skipping extra model paths configuration (this is OK for Gradio hot reload).")
+            return
 
     extra_model_paths = find_path("extra_model_paths.yaml")
 
@@ -151,8 +158,13 @@ def add_extra_model_paths() -> None:
         print("Could not find the extra_model_paths config file.")
 
 
-add_comfyui_directory_to_sys_path()
-add_extra_model_paths()
+# Only run initialization on first load, not during Gradio hot reload
+if not hasattr(__builtins__, '_comfy_initialized'):
+    __builtins__._comfy_initialized = True
+    add_comfyui_directory_to_sys_path()
+    add_extra_model_paths()
+else:
+    print("Skipping ComfyUI initialization (Gradio hot reload detected)")
 
 
 def import_custom_nodes() -> None:
@@ -964,12 +976,21 @@ def apply_color_quantization(
     if len(palette) < 2:
         palette = [(0, 0, 0), (255, 255, 255)]  # Default to black & white
 
+    # Ensure image is in RGB mode (fixes MPS grayscale conversion bug)
+    # On MPS devices, PIL might incorrectly interpret the image as grayscale
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+
     # Convert PIL Image to numpy array
     img_array = np.array(image)
 
-    # Handle RGBA images by converting to RGB
-    if img_array.shape[2] == 4:
+    # Handle RGBA images by converting to RGB (though we already converted above)
+    if len(img_array.shape) == 3 and img_array.shape[2] == 4:
         img_array = img_array[:, :, :3]
+    # Handle grayscale images that slipped through
+    elif len(img_array.shape) == 2:
+        # Convert grayscale to RGB by repeating the channel
+        img_array = np.stack([img_array, img_array, img_array], axis=2)
 
     h, w, c = img_array.shape
     pixels = img_array.reshape(h * w, c).astype(np.float32)
@@ -2159,6 +2180,13 @@ def _pipeline_standard(
             image_tensor = get_value_at_index(upscaled, 0)
             image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
+            # Ensure RGB array shape to prevent MPS grayscale conversion bug
+            if len(image_np.shape) == 2:
+                # Convert grayscale (H, W) to RGB (H, W, 3)
+                image_np = np.stack([image_np, image_np, image_np], axis=2)
+            elif image_np.shape[2] == 1:
+                # Convert (H, W, 1) to (H, W, 3)
+                image_np = np.repeat(image_np, 3, axis=2)
             pil_image = Image.fromarray(image_np)
             current_step += 1
 
@@ -2187,6 +2215,13 @@ def _pipeline_standard(
             image_tensor = get_value_at_index(vaedecode_21, 0)
             image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
             image_np = image_np[0]
+            # Ensure RGB array shape to prevent MPS grayscale conversion bug
+            if len(image_np.shape) == 2:
+                # Convert grayscale (H, W) to RGB (H, W, 3)
+                image_np = np.stack([image_np, image_np, image_np], axis=2)
+            elif image_np.shape[2] == 1:
+                # Convert (H, W, 1) to (H, W, 3)
+                image_np = np.repeat(image_np, 3, axis=2)
             pil_image = Image.fromarray(image_np)
             current_step = 3
 
@@ -2503,6 +2538,33 @@ def _pipeline_artistic(
     # Final sampling pass
     log_progress("Second pass (refinement)...", gr_progress, 0.6)
 
+    # MPS device workaround: Recreate enhanced model for second pass to avoid device placement issues
+    # After the first threaded sampling pass, some model weights can end up on CPU instead of MPS
+    # This happens due to threading interaction with MPS backend + SAG making additional model calls
+    if torch.backends.mps.is_available():
+        # Recreate FreeU enhanced model from base model
+        freeu_model_second = freeu.patch(
+            model=base_model,
+            b1=freeu_b1,
+            b2=freeu_b2,
+            s1=freeu_s1,
+            s2=freeu_s2,
+        )[0]
+
+        # Reapply SAG if enabled
+        if enable_sag:
+            smoothed_energy_second = NODE_CLASS_MAPPINGS["SelfAttentionGuidance"]()
+            enhanced_model_second = smoothed_energy_second.patch(
+                model=freeu_model_second,
+                scale=sag_scale,
+                blur_sigma=sag_blur_sigma,
+            )[0]
+        else:
+            enhanced_model_second = freeu_model_second
+    else:
+        # On non-MPS devices, reuse the same enhanced model
+        enhanced_model_second = enhanced_model
+
     # Use animation-enabled sampler if requested
     if animation_handler and enable_animation:
         # Run ksampler in thread to allow real-time image yielding
@@ -2510,7 +2572,7 @@ def _pipeline_artistic(
 
         def run_ksampler():
             result_container[0] = ksampler_with_animation(
-                model=enhanced_model,  # Using FreeU + SAG enhanced model
+                model=enhanced_model_second,  # Using recreated FreeU + SAG enhanced model (MPS fix)
                 seed=seed + 1,
                 steps=30,
                 cfg=7,
@@ -2545,7 +2607,7 @@ def _pipeline_artistic(
             sampler_name="dpmpp_3m_sde",
             scheduler="karras",
             denoise=0.8,
-            model=enhanced_model,  # Using FreeU + SAG enhanced model
+            model=enhanced_model_second,  # Using recreated FreeU + SAG enhanced model (MPS fix)
             positive=get_value_at_index(controlnet_apply_final, 0),
             negative=get_value_at_index(controlnet_apply_final, 1),
             latent_image=get_value_at_index(upscaled_latent, 0),
@@ -2597,6 +2659,13 @@ def _pipeline_artistic(
         image_tensor = get_value_at_index(upscaled, 0)
         image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
+        # Ensure RGB array shape to prevent MPS grayscale conversion bug
+        if len(image_np.shape) == 2:
+            # Convert grayscale (H, W) to RGB (H, W, 3)
+            image_np = np.stack([image_np, image_np, image_np], axis=2)
+        elif image_np.shape[2] == 1:
+            # Convert (H, W, 1) to (H, W, 3)
+            image_np = np.repeat(image_np, 3, axis=2)
         final_image = Image.fromarray(image_np)
 
         # Apply color quantization if enabled
@@ -2619,6 +2688,13 @@ def _pipeline_artistic(
         image_tensor = get_value_at_index(final_decoded, 0)
         image_np = (image_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
         image_np = image_np[0]
+        # Ensure RGB array shape to prevent MPS grayscale conversion bug
+        if len(image_np.shape) == 2:
+            # Convert grayscale (H, W) to RGB (H, W, 3)
+            image_np = np.stack([image_np, image_np, image_np], axis=2)
+        elif image_np.shape[2] == 1:
+            # Convert (H, W, 1) to (H, W, 3)
+            image_np = np.repeat(image_np, 3, axis=2)
         final_image = Image.fromarray(image_np)
 
         # Apply color quantization if enabled
@@ -2638,16 +2714,8 @@ def _pipeline_artistic(
         return  # Explicit return to cleanly exit generator
 
 
-if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
-    # Call AOT compilation during startup (only on CUDA, not MPS)
-    # Must be called after module init but before Gradio app launch
-    if not torch.backends.mps.is_available():
-        compile_models_with_aoti()
-    else:
-        print("ℹ️  AOT compilation skipped on MPS (MacBook) - using eager mode\n")
-
-    # Define artistic examples data
-    ARTISTIC_EXAMPLES = [
+# Define artistic examples data (at module level for hot reload)
+ARTISTIC_EXAMPLES = [
         {
             "image": "examples/artistic/japanese_temple.jpg",
             "label": "Japanese Temple",
@@ -2783,11 +2851,11 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
             "seed": 718313,
             "sag_blur_sigma": 1.5,
         },
-    ]
+]
 
-    # Start your Gradio app with automatic cache cleanup
-    # delete_cache=(3600, 3600) means: check every hour and delete files older than 1 hour
-    with gr.Blocks(delete_cache=(3600, 3600)) as app:
+# Start your Gradio app with automatic cache cleanup (at module level for hot reload)
+# delete_cache=(3600, 3600) means: check every hour and delete files older than 1 hour
+with gr.Blocks(delete_cache=(3600, 3600)) as demo:
         # Add a title and description
         gr.Markdown("# QR Code Art Generator")
         gr.Markdown("""
@@ -4113,7 +4181,18 @@ if __name__ == "__main__" and not os.environ.get("QR_TESTING_MODE"):
                 )
 
             # ARTISTIC QR TAB
-    app.queue()  # Required for gr.Progress() to work!
-    app.launch(share=False, mcp_server=True)
+
+# Queue is required for gr.Progress() to work!
+demo.queue()
+
+# Launch the app when run directly (not during hot reload)
+if __name__ == "__main__":
+    # Call AOT compilation during startup (only on CUDA, not MPS)
+    if not torch.backends.mps.is_available() and not os.environ.get("QR_TESTING_MODE"):
+        compile_models_with_aoti()
+    else:
+        print("ℹ️  AOT compilation skipped (MPS or testing mode)\n")
+
+    demo.launch(share=False, mcp_server=True)
     # Note: Automatic file cleanup via delete_cache not available in Gradio 5.49.1
     # Files will be cleaned up when the server is restarted
