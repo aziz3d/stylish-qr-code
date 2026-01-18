@@ -2490,14 +2490,14 @@ def _pipeline_artistic(
         vae=get_value_at_index(checkpointloadersimple_artistic, 2),
     )
 
-    # Tile preprocessor (using QR with border cubics)
+    # Tile preprocessor (using filtered or raw QR with border cubics)
     tile_processed = tilepreprocessor.execute(
         pyrUp_iters=3,
         resolution=image_size,
-        image=qr_with_border_noise,
+        image=qr_for_brightness,
     )
 
-    # Second ControlNet pass (using tile processed from QR with border cubics)
+    # Second ControlNet pass (using tile processed from filtered/raw QR)
     controlnet_apply = controlnetapplyadvanced.apply_controlnet(
         strength=controlnet_strength_first,
         start_percent=0,
