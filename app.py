@@ -20,6 +20,7 @@ import spaces
 import torch
 from huggingface_hub import hf_hub_download
 from PIL import Image
+import kornia.color  # For RGB→HSV conversion in Stable Cascade filter
 
 # ComfyUI imports (after HF hub downloads)
 from comfy import model_management
@@ -147,7 +148,9 @@ def add_extra_model_paths() -> None:
             print(
                 f"Could not import load_extra_path_config from utils.extra_config either: {e}"
             )
-            print("Skipping extra model paths configuration (this is OK for Gradio hot reload).")
+            print(
+                "Skipping extra model paths configuration (this is OK for Gradio hot reload)."
+            )
             return
 
     extra_model_paths = find_path("extra_model_paths.yaml")
@@ -159,7 +162,7 @@ def add_extra_model_paths() -> None:
 
 
 # Only run initialization on first load, not during Gradio hot reload
-if not hasattr(__builtins__, '_comfy_initialized'):
+if not hasattr(__builtins__, "_comfy_initialized"):
     __builtins__._comfy_initialized = True
     add_comfyui_directory_to_sys_path()
     add_extra_model_paths()
@@ -599,7 +602,9 @@ def get_dynamic_duration(*args, **kwargs):
     Artistic: 640+anim=23s, 832+anim=45s, 832+anim+upscale=57s, 1024+anim+upscale=124s
     """
     # Debug logging
-    print(f"[GPU DURATION DEBUG] Called with args length={len(args)}, kwargs keys={list(kwargs.keys()) if kwargs else 'None'}")
+    print(
+        f"[GPU DURATION DEBUG] Called with args length={len(args)}, kwargs keys={list(kwargs.keys()) if kwargs else 'None'}"
+    )
 
     # Extract parameters from correct source (args vs kwargs)
     # Function signature: generate_qr_code_unified(prompt, negative_prompt, text_input, input_type, image_size, ...)
@@ -609,7 +614,9 @@ def get_dynamic_duration(*args, **kwargs):
     enable_animation = kwargs.get("enable_animation", True)
     enable_upscale = kwargs.get("enable_upscale", False)
 
-    print(f"[GPU DURATION DEBUG] Extracted: pipeline={pipeline}, image_size={image_size}, enable_animation={enable_animation}, enable_upscale={enable_upscale}")
+    print(
+        f"[GPU DURATION DEBUG] Extracted: pipeline={pipeline}, image_size={image_size}, enable_animation={enable_animation}, enable_upscale={enable_upscale}"
+    )
 
     if pipeline == "standard":
         # Standard pipeline benchmarks (with 32% safety margin = 20% + 10% buffer)
@@ -641,7 +648,9 @@ def get_dynamic_duration(*args, **kwargs):
 
     # Cap at 120 seconds (unauthenticated user limit)
     final_duration = min(duration, 120)
-    print(f"[GPU DURATION DEBUG] Calculated duration={duration}, final_duration={final_duration}")
+    print(
+        f"[GPU DURATION DEBUG] Calculated duration={duration}, final_duration={final_duration}"
+    )
     return final_duration
 
 
@@ -681,11 +690,14 @@ def generate_qr_code_unified(
     gradient_strength: float = 0.3,
     variation_steps: int = 5,
     enable_animation: bool = True,
-    progress=gr.Progress(),
+    enable_cascade_filter: bool = False,
+    gr_progress=None,
 ):
     # Track actual GPU time spent
     start_time = time.time()
-    print(f"[GPU TIMING] Started generation: pipeline={pipeline}, image_size={image_size}, animation={enable_animation}, upscale={enable_upscale}")
+    print(
+        f"[GPU TIMING] Started generation: pipeline={pipeline}, image_size={image_size}, animation={enable_animation}, upscale={enable_upscale}"
+    )
 
     # Only manipulate the text if it's a URL input type
     qr_text = text_input
@@ -724,7 +736,7 @@ def generate_qr_code_unified(
                 gradient_strength=gradient_strength,
                 variation_steps=variation_steps,
                 enable_animation=enable_animation,
-                gr_progress=progress,
+                gr_progress=gr_progress,
             ):
                 yield result
         else:  # artistic
@@ -759,13 +771,16 @@ def generate_qr_code_unified(
                 gradient_strength=gradient_strength,
                 variation_steps=variation_steps,
                 enable_animation=enable_animation,
-                gr_progress=progress,
+                enable_cascade_filter=enable_cascade_filter,
+                gr_progress=gr_progress,
             ):
                 yield result
 
     # Log actual time spent after generation completes
     elapsed_time = time.time() - start_time
-    print(f"[GPU TIMING] Completed generation in {elapsed_time:.2f}s (pipeline={pipeline}, image_size={image_size})")
+    print(
+        f"[GPU TIMING] Completed generation in {elapsed_time:.2f}s (pipeline={pipeline}, image_size={image_size})"
+    )
 
 
 class AnimationHandler:
@@ -978,8 +993,8 @@ def apply_color_quantization(
 
     # Ensure image is in RGB mode (fixes MPS grayscale conversion bug)
     # On MPS devices, PIL might incorrectly interpret the image as grayscale
-    if image.mode != 'RGB':
-        image = image.convert('RGB')
+    if image.mode != "RGB":
+        image = image.convert("RGB")
 
     # Convert PIL Image to numpy array
     img_array = np.array(image)
@@ -1113,6 +1128,73 @@ def apply_color_quantization(
     return Image.fromarray(quantized_image)
 
 
+def apply_stable_cascade_qr_filter(
+    image_tensor: torch.Tensor,
+    blur_kernel: int = 15,
+    threshold_ratio: float = 0.33,
+    device: str = None,
+) -> torch.Tensor:
+    """
+    Apply Stable Cascade QR filter for better brightness-based control.
+
+    This filter improves ControlNet perception by:
+    1. Converting to HSV (perceptually accurate brightness)
+    2. Applying Gaussian blur (reduces blockiness)
+    3. Adaptive thresholding (creates 3 brightness levels)
+
+    Based on: https://github.com/Stability-AI/StableCascade
+
+    Args:
+        image_tensor: Input QR tensor [B, H, W, C] or [B, C, H, W] in range [0, 1]
+        blur_kernel: Gaussian blur kernel size (default: 15)
+        threshold_ratio: Brightness threshold ratio (default: 0.33)
+        device: Target device (auto-detect if None)
+
+    Returns:
+        Filtered tensor in same format as input with three brightness levels (0.0, 0.5, 1.0)
+    """
+    if device is None:
+        device = image_tensor.device
+
+    # Ensure tensor is on correct device and in float32
+    x = image_tensor.to(device).float()
+
+    # ComfyUI images are [B, H, W, C], but kornia expects [B, C, H, W]
+    needs_permute = x.ndim == 4 and x.shape[-1] == 3
+    if needs_permute:
+        x = x.permute(0, 3, 1, 2)
+
+    # 1. Convert RGB to HSV and extract Value (brightness) channel
+    x_hsv = kornia.color.rgb_to_hsv(x)
+    brightness = x_hsv[:, -1:, :, :]  # Shape: [B, 1, H, W]
+
+    # 2. Apply Gaussian blur
+    if blur_kernel > 0:
+        kernel = blur_kernel if blur_kernel % 2 == 1 else blur_kernel + 1
+        import torchvision
+
+        brightness = torchvision.transforms.GaussianBlur(kernel)(brightness)
+
+    # 3. Adaptive thresholding
+    vmax = brightness.amax(dim=[2, 3], keepdim=True)
+    vmin = brightness.amin(dim=[2, 3], keepdim=True)
+    threshold = (vmax - vmin) * threshold_ratio
+
+    # 4. Create three-level mask (0.0=dark, 0.5=mid, 1.0=bright)
+    high_brightness = (brightness > (vmax - threshold)).float()
+    low_brightness = (brightness < (vmin + threshold)).float()
+    mask = (torch.ones_like(brightness) - low_brightness + high_brightness) * 0.5
+
+    # 5. Convert to 3-channel RGB
+    filtered = mask.repeat(1, 3, 1, 1)
+
+    # 6. Permute back to ComfyUI format if needed
+    if needs_permute:
+        filtered = filtered.permute(0, 2, 3, 1)
+
+    return filtered
+
+
 def generate_standard_qr(
     prompt: str,
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
@@ -1201,7 +1283,7 @@ def generate_standard_qr(
         apply_gradient_filter=apply_gradient_filter,
         gradient_strength=gradient_strength,
         variation_steps=variation_steps,
-        progress=progress,
+        gr_progress=progress,
     )
 
     final_image = None
@@ -1237,6 +1319,7 @@ def generate_artistic_qr(
     seed: int = 0,
     enable_upscale: bool = False,
     enable_animation: bool = True,
+    enable_cascade_filter: bool = False,
     enable_freeu: bool = True,
     freeu_b1: float = 1.4,
     freeu_b2: float = 1.3,
@@ -1334,7 +1417,8 @@ def generate_artistic_qr(
         gradient_strength=gradient_strength,
         variation_steps=variation_steps,
         enable_animation=enable_animation,
-        progress=progress,
+        enable_cascade_filter=enable_cascade_filter,
+        gr_progress=progress,
     )
 
     final_image = None
@@ -2278,6 +2362,7 @@ def _pipeline_artistic(
     gradient_strength: float = 0.3,
     variation_steps: int = 5,
     enable_animation: bool = True,
+    enable_cascade_filter: bool = False,
     gr_progress=None,
 ):
     # Initialize animation handler if enabled
@@ -2385,7 +2470,15 @@ def _pipeline_artistic(
         control_net_name="control_v11f1e_sd15_tile_fp16.safetensors"
     )
 
-    # First ControlNet pass (using QR with border cubics)
+    # Apply Stable Cascade filter if enabled
+    if enable_cascade_filter:
+        qr_for_brightness = apply_stable_cascade_qr_filter(
+            qr_with_border_noise, blur_kernel=15, threshold_ratio=0.33
+        )
+    else:
+        qr_for_brightness = qr_with_border_noise
+
+    # First ControlNet pass (using filtered or raw QR with border cubics)
     controlnet_apply = controlnetapplyadvanced.apply_controlnet(
         strength=controlnet_strength_first,
         start_percent=0,
@@ -2393,7 +2486,7 @@ def _pipeline_artistic(
         positive=get_value_at_index(positive_prompt, 0),
         negative=get_value_at_index(negative_prompt_encoded, 0),
         control_net=get_value_at_index(brightness_controlnet, 0),
-        image=qr_with_border_noise,
+        image=qr_for_brightness,
         vae=get_value_at_index(checkpointloadersimple_artistic, 2),
     )
 
@@ -2716,149 +2809,149 @@ def _pipeline_artistic(
 
 # Define artistic examples data (at module level for hot reload)
 ARTISTIC_EXAMPLES = [
-        {
-            "image": "examples/artistic/japanese_temple.jpg",
-            "label": "Japanese Temple",
-            "prompt": "some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
-            "text_input": "https://www.google.com",
-            "input_type": "URL",
-            "image_size": 640,
-            "border_size": 6,
-            "error_correction": "Medium (15%)",
-            "module_size": 14,
-            "module_drawer": "Square",
-            "use_custom_seed": True,
-            "seed": 718313,
-            "sag_blur_sigma": 0.5,
-        },
-        {
-            "image": "examples/artistic/sunset_mountains.jpg",
-            "label": "Sunset Mountains",
-            "prompt": "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
-            "text_input": "https://github.com",
-            "input_type": "URL",
-            "image_size": 704,
-            "border_size": 6,
-            "error_correction": "High (30%)",
-            "module_size": 16,
-            "module_drawer": "Square",
-            "use_custom_seed": True,
-            "seed": 718313,
-            "sag_blur_sigma": 0.5,
-        },
-        {
-            "image": "examples/artistic/roman_city.jpg",
-            "label": "Roman City",
-            "prompt": "aerial bird view of ancient Roman city, cobblestone streets and pathways forming intricate patterns, vintage illustration style, sepia tones, aged parchment look, detailed architecture, 8k, ultra detailed",
-            "text_input": "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
-            "input_type": "Plain Text",
-            "image_size": 832,
-            "border_size": 6,
-            "error_correction": "High (30%)",
-            "module_size": 16,
-            "module_drawer": "Square",
-            "use_custom_seed": True,
-            "seed": 718313,
-            "sag_blur_sigma": 0.5,
-        },
-        {
-            "image": "examples/artistic/neapolitan_pizza.webp",
-            "label": "Neapolitan Pizza",
-            "prompt": "artisan Neapolitan pizza on rustic wooden board, fresh basil leaves scattered on top and around, oregano sprinkled, flour dust particles floating in air, melted mozzarella with char marks, traditional Italian pizzeria ambiance, warm brick oven glow in background, detailed food photography, photorealistic, 8k, ultra detailed",
-            "text_input": "https://www.pizzamaking.com",
-            "input_type": "URL",
-            "image_size": 704,
-            "border_size": 5,
-            "error_correction": "High (30%)",
-            "module_size": 16,
-            "module_drawer": "Square",
-            "use_custom_seed": True,
-            "seed": 856749,
-            "sag_blur_sigma": 2.0,
-        },
-        {
-            "image": "examples/artistic/poker_chips.webp",
-            "label": "Poker Chips",
-            "prompt": "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-            "text_input": "https://store.steampowered.com",
-            "input_type": "URL",
-            "image_size": 768,
-            "border_size": 6,
-            "error_correction": "High (30%)",
-            "module_size": 16,
-            "module_drawer": "Square",
-            "use_custom_seed": True,
-            "seed": 718313,
-            "sag_blur_sigma": 1.5,
-        },
-        {
-            "image": "examples/artistic/underwater_fish.webp",
-            "label": "Underwater Fish",
-            "prompt": "underwater scene with tropical fish, coral reef, rays of sunlight penetrating water, vibrant colors, detailed marine life, photorealistic, 8k, ultra detailed",
-            "text_input": "https://www.reddit.com",
-            "input_type": "URL",
-            "image_size": 704,
-            "border_size": 6,
-            "error_correction": "High (30%)",
-            "module_size": 16,
-            "module_drawer": "Square",
-            "use_custom_seed": True,
-            "seed": 3048334933,
-            "sag_blur_sigma": 1.5,
-        },
-        {
-            "image": "examples/artistic/mediterranean_garden.jpg",
-            "label": "Mediterranean Garden",
-            "prompt": "ancient stone sundial in Mediterranean garden, olive trees, dappled sunlight through leaves, weathered stone texture, peaceful afternoon scene, photorealistic, detailed, 8k, ultra detailed",
-            "text_input": "https://www.google.com",
-            "input_type": "URL",
-            "image_size": 704,
-            "border_size": 6,
-            "error_correction": "High (30%)",
-            "module_size": 14,
-            "module_drawer": "Square",
-            "use_custom_seed": True,
-            "seed": 413468,
-            "sag_blur_sigma": 0.5,
-        },
-        {
-            "image": "examples/artistic/rice_fields.jpg",
-            "label": "Rice Fields",
-            "prompt": "aerial view of terraced rice fields on mountainside, winding pathways between green paddies, Asian countryside, bird's eye perspective, detailed landscape, golden hour lighting, photorealistic, 8k, ultra detailed",
-            "text_input": "geo:37.7749,-122.4194",
-            "input_type": "Plain Text",
-            "image_size": 704,
-            "border_size": 6,
-            "error_correction": "High (30%)",
-            "module_size": 16,
-            "module_drawer": "Square",
-            "use_custom_seed": True,
-            "seed": 962359,
-            "sag_blur_sigma": 0.5,
-        },
-        {
-            "image": "examples/artistic/cyberpunk_city.webp",
-            "label": "Cyberpunk City",
-            "prompt": "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
-            "text_input": "https://linkedin.com",
-            "input_type": "URL",
-            "image_size": 704,
-            "border_size": 6,
-            "error_correction": "High (30%)",
-            "module_size": 16,
-            "module_drawer": "Square",
-            "use_custom_seed": True,
-            "seed": 718313,
-            "sag_blur_sigma": 1.5,
-        },
+    {
+        "image": "examples/artistic/japanese_temple.jpg",
+        "label": "Japanese Temple",
+        "prompt": "some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
+        "text_input": "https://www.google.com",
+        "input_type": "URL",
+        "image_size": 640,
+        "border_size": 6,
+        "error_correction": "Medium (15%)",
+        "module_size": 14,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 718313,
+        "sag_blur_sigma": 0.5,
+    },
+    {
+        "image": "examples/artistic/sunset_mountains.jpg",
+        "label": "Sunset Mountains",
+        "prompt": "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
+        "text_input": "https://github.com",
+        "input_type": "URL",
+        "image_size": 704,
+        "border_size": 6,
+        "error_correction": "High (30%)",
+        "module_size": 16,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 718313,
+        "sag_blur_sigma": 0.5,
+    },
+    {
+        "image": "examples/artistic/roman_city.jpg",
+        "label": "Roman City",
+        "prompt": "aerial bird view of ancient Roman city, cobblestone streets and pathways forming intricate patterns, vintage illustration style, sepia tones, aged parchment look, detailed architecture, 8k, ultra detailed",
+        "text_input": "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
+        "input_type": "Plain Text",
+        "image_size": 832,
+        "border_size": 6,
+        "error_correction": "High (30%)",
+        "module_size": 16,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 718313,
+        "sag_blur_sigma": 0.5,
+    },
+    {
+        "image": "examples/artistic/neapolitan_pizza.webp",
+        "label": "Neapolitan Pizza",
+        "prompt": "artisan Neapolitan pizza on rustic wooden board, fresh basil leaves scattered on top and around, oregano sprinkled, flour dust particles floating in air, melted mozzarella with char marks, traditional Italian pizzeria ambiance, warm brick oven glow in background, detailed food photography, photorealistic, 8k, ultra detailed",
+        "text_input": "https://www.pizzamaking.com",
+        "input_type": "URL",
+        "image_size": 704,
+        "border_size": 5,
+        "error_correction": "High (30%)",
+        "module_size": 16,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 856749,
+        "sag_blur_sigma": 2.0,
+    },
+    {
+        "image": "examples/artistic/poker_chips.webp",
+        "label": "Poker Chips",
+        "prompt": "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+        "text_input": "https://store.steampowered.com",
+        "input_type": "URL",
+        "image_size": 768,
+        "border_size": 6,
+        "error_correction": "High (30%)",
+        "module_size": 16,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 718313,
+        "sag_blur_sigma": 1.5,
+    },
+    {
+        "image": "examples/artistic/underwater_fish.webp",
+        "label": "Underwater Fish",
+        "prompt": "underwater scene with tropical fish, coral reef, rays of sunlight penetrating water, vibrant colors, detailed marine life, photorealistic, 8k, ultra detailed",
+        "text_input": "https://www.reddit.com",
+        "input_type": "URL",
+        "image_size": 704,
+        "border_size": 6,
+        "error_correction": "High (30%)",
+        "module_size": 16,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 3048334933,
+        "sag_blur_sigma": 1.5,
+    },
+    {
+        "image": "examples/artistic/mediterranean_garden.jpg",
+        "label": "Mediterranean Garden",
+        "prompt": "ancient stone sundial in Mediterranean garden, olive trees, dappled sunlight through leaves, weathered stone texture, peaceful afternoon scene, photorealistic, detailed, 8k, ultra detailed",
+        "text_input": "https://www.google.com",
+        "input_type": "URL",
+        "image_size": 704,
+        "border_size": 6,
+        "error_correction": "High (30%)",
+        "module_size": 14,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 413468,
+        "sag_blur_sigma": 0.5,
+    },
+    {
+        "image": "examples/artistic/rice_fields.jpg",
+        "label": "Rice Fields",
+        "prompt": "aerial view of terraced rice fields on mountainside, winding pathways between green paddies, Asian countryside, bird's eye perspective, detailed landscape, golden hour lighting, photorealistic, 8k, ultra detailed",
+        "text_input": "geo:37.7749,-122.4194",
+        "input_type": "Plain Text",
+        "image_size": 704,
+        "border_size": 6,
+        "error_correction": "High (30%)",
+        "module_size": 16,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 962359,
+        "sag_blur_sigma": 0.5,
+    },
+    {
+        "image": "examples/artistic/cyberpunk_city.webp",
+        "label": "Cyberpunk City",
+        "prompt": "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
+        "text_input": "https://linkedin.com",
+        "input_type": "URL",
+        "image_size": 704,
+        "border_size": 6,
+        "error_correction": "High (30%)",
+        "module_size": 16,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 718313,
+        "sag_blur_sigma": 1.5,
+    },
 ]
 
 # Start your Gradio app with automatic cache cleanup (at module level for hot reload)
 # delete_cache=(3600, 3600) means: check every hour and delete files older than 1 hour
 with gr.Blocks(delete_cache=(3600, 3600)) as demo:
-        # Add a title and description
-        gr.Markdown("# QR Code Art Generator")
-        gr.Markdown("""
+    # Add a title and description
+    gr.Markdown("# QR Code Art Generator")
+    gr.Markdown("""
         AI-powered QR code generator with two pipelines: **Artistic** (creative, photorealistic) and **Standard** (fast, reliable).
 
         **Privacy:** Generated images auto-delete after 1 hour. Download promptly!
@@ -2876,12 +2969,12 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
         Choose a tab below to get started!
         """)
 
-        # Add tabs for different generation methods
-        with gr.Tabs():
-            # ARTISTIC QR TAB
-            with gr.TabItem("Artistic QR"):
-                # Short description
-                gr.Markdown("""
+    # Add tabs for different generation methods
+    with gr.Tabs():
+        # ARTISTIC QR TAB
+        with gr.TabItem("Artistic QR"):
+            # Short description
+            gr.Markdown("""
                 🎨 **Create artistic QR codes that blend seamlessly with your creative vision**
 
                 ⚡ **Advanced controls** for perfect balance between scannability and aesthetics
@@ -2889,9 +2982,9 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 💡 **More creative and photorealistic** than Standard pipeline
                 """)
 
-                # Full documentation in collapsed accordion
-                with gr.Accordion("📖 Full Documentation & Tips", open=False):
-                    gr.Markdown("""
+            # Full documentation in collapsed accordion
+            with gr.Accordion("📖 Full Documentation & Tips", open=False):
+                gr.Markdown("""
                     ### About Artistic QR Pipeline
                     The Artistic pipeline creates highly creative, photorealistic QR codes. This pipeline offers:
                     - More artistic freedom and creative results
@@ -2915,667 +3008,678 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     After generation, copy the JSON settings that appear below your image to reproduce exact results or share with others using "Import Settings from JSON"
                     """)
 
-                with gr.Row():
-                    with gr.Column():
-                        # Add input type selector for artistic QR
-                        artistic_input_type = gr.Radio(
-                            choices=["URL", "Plain Text"],
-                            value="URL",
-                            label="Input Type",
-                            info="URL: For web links (auto-removes https://). Plain Text: For VCARD, WiFi, calendar, location, etc. (no manipulation)",
-                        )
+            with gr.Row():
+                with gr.Column():
+                    # Add input type selector for artistic QR
+                    artistic_input_type = gr.Radio(
+                        choices=["URL", "Plain Text"],
+                        value="URL",
+                        label="Input Type",
+                        info="URL: For web links (auto-removes https://). Plain Text: For VCARD, WiFi, calendar, location, etc. (no manipulation)",
+                    )
 
-                        # Add inputs for artistic QR
-                        artistic_prompt_input = gr.Textbox(
-                            label="Prompt",
-                            placeholder="Describe the image you want to generate (check examples below for inspiration)",
-                            value="some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
+                    # Add inputs for artistic QR
+                    artistic_prompt_input = gr.Textbox(
+                        label="Prompt",
+                        placeholder="Describe the image you want to generate (check examples below for inspiration)",
+                        value="some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
+                        lines=3,
+                    )
+                    artistic_text_input = gr.Textbox(
+                        label="QR Code Content",
+                        placeholder="Enter URL or plain text",
+                        value="https://www.google.com",
+                        lines=3,
+                    )
+
+                    # Import Settings section - separate accordion
+                    with gr.Accordion("Import Settings from JSON", open=False):
+                        gr.Markdown(
+                            "Paste a settings JSON string (copied from a previous generation) to load all parameters at once."
+                        )
+                        import_json_input_artistic = gr.Textbox(
+                            label="Paste Settings JSON",
+                            placeholder='{"pipeline": "artistic", "prompt": "...", "seed": 718313, ...}',
                             lines=3,
                         )
-                        artistic_text_input = gr.Textbox(
-                            label="QR Code Content",
-                            placeholder="Enter URL or plain text",
-                            value="https://www.google.com",
-                            lines=3,
-                        )
-
-                        # Import Settings section - separate accordion
-                        with gr.Accordion("Import Settings from JSON", open=False):
-                            gr.Markdown(
-                                "Paste a settings JSON string (copied from a previous generation) to load all parameters at once."
-                            )
-                            import_json_input_artistic = gr.Textbox(
-                                label="Paste Settings JSON",
-                                placeholder='{"pipeline": "artistic", "prompt": "...", "seed": 718313, ...}',
-                                lines=3,
-                            )
-                            import_status_artistic = gr.Textbox(
-                                label="Import Status",
-                                interactive=False,
-                                visible=False,
-                                lines=2,
-                            )
-                            with gr.Row():
-                                load_settings_btn_artistic = gr.Button(
-                                    "Load Settings", variant="primary"
-                                )
-                                clear_json_btn_artistic = gr.Button(
-                                    "Clear", variant="secondary"
-                                )
-
-                        # Change Settings Manually - separate accordion
-                        with gr.Accordion("Change Settings Manually", open=False):
-                            gr.Markdown(
-                                "**Advanced controls including:** Animation toggle, Color Quantization, FreeU/SAG parameters, ControlNet strength, QR settings, and more."
-                            )
-                            # Negative Prompt
-                            negative_prompt_artistic = gr.Textbox(
-                                label="Negative Prompt",
-                                placeholder="Describe what you don't want in the image",
-                                value="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
-                                lines=2,
-                                info="Keywords to avoid in the generated image",
-                            )
-
-                            # Add image size slider for artistic QR
-                            artistic_image_size = gr.Slider(
-                                minimum=512,
-                                maximum=1024,
-                                step=64,
-                                value=640,
-                                label="Image Size",
-                                info="Base size of the generated image. Final output will be 2x this size (e.g., 640 → 1280) due to the two-step enhancement process. Higher values use more VRAM and take longer to process.",
-                            )
-
-                            # Add border size slider for artistic QR
-                            artistic_border_size = gr.Slider(
-                                minimum=0,
-                                maximum=8,
-                                step=1,
-                                value=6,
-                                label="QR Code Border Size",
-                                info="Number of modules (squares) to use as border around the QR code. Higher values add more whitespace.",
-                            )
-
-                            # Add error correction dropdown for artistic QR
-                            artistic_error_correction = gr.Dropdown(
-                                choices=[
-                                    "Low (7%)",
-                                    "Medium (15%)",
-                                    "Quartile (25%)",
-                                    "High (30%)",
-                                ],
-                                value="Medium (15%)",
-                                label="Error Correction Level",
-                                info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. High (30%) is recommended for artistic QR codes.",
-                            )
-
-                            # Add module size slider for artistic QR
-                            artistic_module_size = gr.Slider(
-                                minimum=4,
-                                maximum=16,
-                                step=1,
-                                value=14,
-                                label="QR Module Size",
-                                info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 14 is a good starting point.",
-                            )
-
-                            # Add module drawer dropdown with style examples for artistic QR
-                            artistic_module_drawer = gr.Dropdown(
-                                choices=[
-                                    "Square",
-                                    "Gapped square",
-                                    "Circle",
-                                    "Rounded",
-                                    "Vertical bars",
-                                    "Horizontal bars",
-                                ],
-                                value="Square",
-                                label="QR Code Style",
-                                info="Select the style of the QR code modules (squares). See examples below. Different styles can give your QR code a unique look while maintaining scannability.",
-                            )
-
-                            # Add style examples with labels
-                            gr.Markdown("### Style Examples:")
-
-                            # First row of examples
-                            with gr.Row():
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Square**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/square.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Gapped Square**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/gapped_square.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Circle**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/circle.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-
-                            # Second row of examples
-                            with gr.Row():
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Rounded**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/rounded.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Vertical Bars**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/vertical-bars.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Horizontal Bars**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/horizontal-bars.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-
-                            # Add upscale checkbox
-                            artistic_enable_upscale = gr.Checkbox(
-                                label="Enable Upscaling",
-                                value=False,
-                                info="Enable upscaling with RealESRGAN for higher quality output (disabled by default to reduce GPU time)",
-                            )
-
-                            # Animation toggle
-                            artistic_enable_animation = gr.Checkbox(
-                                label="Enable Animation (Show KSampler Progress)",
-                                value=True,
-                                info="Shows intermediate images every 5 steps during generation. Disable for faster generation.",
-                            )
-
-                            # Color Quantization Section
-                            gr.Markdown("### Color Quantization (Optional)")
-                            gr.Markdown(
-                                "Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs."
-                            )
-                            artistic_enable_color_quantization = gr.Checkbox(
-                                label="Enable Color Quantization",
-                                value=False,
-                                info="Apply a custom color palette to the generated image",
-                            )
-
-                            artistic_num_colors = gr.Slider(
-                                minimum=2,
-                                maximum=4,
-                                step=1,
-                                value=4,
-                                label="Number of Colors",
-                                info="How many colors to use from the palette (2-4)",
-                                visible=False,
-                            )
-
-                            # Colors 1 & 2 (QR code colors - hidden when gradient enabled)
-                            with gr.Row(
-                                visible=False
-                            ) as artistic_color_pickers_row_1_2:
-                                artistic_color_1 = gr.ColorPicker(
-                                    label="Color 1 (QR Dark)",
-                                    value="#000000",
-                                    info="Preserved when using gradients",
-                                )
-                                artistic_color_2 = gr.ColorPicker(
-                                    label="Color 2 (QR Light)",
-                                    value="#FFFFFF",
-                                    info="Preserved when using gradients",
-                                )
-
-                            # Colors 3 & 4 (Background colors - always editable)
-                            with gr.Row(
-                                visible=False
-                            ) as artistic_color_pickers_row_3_4:
-                                artistic_color_3 = gr.ColorPicker(
-                                    label="Color 3 (Background)", value="#FF0000"
-                                )
-                                artistic_color_4 = gr.ColorPicker(
-                                    label="Color 4 (Background)", value="#00FF00"
-                                )
-
-                            # Gradient Filter Section (nested under color quantization)
-                            artistic_apply_gradient_filter = gr.Checkbox(
-                                label="Apply Gradient Filter",
-                                value=False,
-                                visible=False,
-                                elem_id="artistic_gradient_checkbox",
-                                info="Create gradient variations around colors 3-4 while preserving colors 1-2 for QR scannability",
-                            )
-
-                            artistic_gradient_strength = gr.Slider(
-                                minimum=0.1,
-                                maximum=1.0,
-                                step=0.1,
-                                value=0.3,
-                                label="Gradient Strength",
-                                info="Brightness variation (0.3 = ±30%)",
-                                visible=False,
-                            )
-
-                            artistic_variation_steps = gr.Slider(
-                                minimum=1,
-                                maximum=10,
-                                step=1,
-                                value=5,
-                                label="Variation Steps",
-                                info="Number of gradient steps (higher = smoother)",
-                                visible=False,
-                            )
-
-                            # Visibility toggle for gradient filter
-                            artistic_apply_gradient_filter.change(
-                                fn=lambda gradient_enabled: (
-                                    gr.update(visible=gradient_enabled),
-                                    gr.update(visible=gradient_enabled),
-                                    gr.update(
-                                        visible=not gradient_enabled
-                                    ),  # Hide colors 1&2 when gradient ON
-                                ),
-                                inputs=[artistic_apply_gradient_filter],
-                                outputs=[
-                                    artistic_gradient_strength,
-                                    artistic_variation_steps,
-                                    artistic_color_pickers_row_1_2,
-                                ],
-                            )
-
-                            # Visibility toggle for color quantization
-                            artistic_enable_color_quantization.change(
-                                fn=lambda enabled: (
-                                    gr.update(visible=enabled),
-                                    gr.update(visible=enabled),
-                                    gr.update(visible=enabled),
-                                    gr.update(visible=enabled),
-                                ),
-                                inputs=[artistic_enable_color_quantization],
-                                outputs=[
-                                    artistic_num_colors,
-                                    artistic_color_pickers_row_1_2,
-                                    artistic_color_pickers_row_3_4,
-                                    artistic_apply_gradient_filter,
-                                ],
-                            )
-
-                            # Add seed controls for artistic QR
-                            artistic_use_custom_seed = gr.Checkbox(
-                                label="Use Custom Seed",
-                                value=True,
-                                info="Enable to use a specific seed for reproducible results",
-                            )
-                            artistic_seed = gr.Slider(
-                                minimum=0,
-                                maximum=2**32 - 1,
-                                step=1,
-                                value=718313,
-                                label="Seed",
-                                visible=True,  # Initially visible since artistic_use_custom_seed=True
-                                info="Seed value for reproducibility. Same seed with same settings will produce the same result.",
-                            )
-
-                            # FreeU Parameters
-                            gr.Markdown("### FreeU Quality Enhancement")
-                            enable_freeu_artistic = gr.Checkbox(
-                                label="Enable FreeU",
-                                value=True,
-                                info="Enable FreeU quality enhancement (enabled by default for artistic pipeline)",
-                            )
-                            freeu_b1 = gr.Slider(
-                                minimum=1.0,
-                                maximum=1.6,
-                                step=0.01,
-                                value=1.4,
-                                label="FreeU B1 (Backbone 1)",
-                                info="Backbone feature enhancement for first layer. Higher values improve detail but may reduce blending. Range: 1.0-1.6, Default: 1.4",
-                            )
-                            freeu_b2 = gr.Slider(
-                                minimum=1.0,
-                                maximum=1.6,
-                                step=0.01,
-                                value=1.3,
-                                label="FreeU B2 (Backbone 2)",
-                                info="Backbone feature enhancement for second layer. Higher values improve texture. Range: 1.0-1.6, Default: 1.3",
-                            )
-                            freeu_s1 = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.5,
-                                step=0.01,
-                                value=0.0,
-                                label="FreeU S1 (Skip 1)",
-                                info="Skip connection dampening for first layer. Lower values hide QR structure more. Range: 0.0-1.5, Default: 0.0",
-                            )
-                            freeu_s2 = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.5,
-                                step=0.01,
-                                value=1.3,
-                                label="FreeU S2 (Skip 2)",
-                                info="Skip connection dampening for second layer. Balances scannability. Range: 0.0-1.5, Default: 1.3",
-                            )
-
-                            # SAG (Self-Attention Guidance) Parameters
-                            gr.Markdown("### SAG (Self-Attention Guidance)")
-                            enable_sag = gr.Checkbox(
-                                label="Enable SAG",
-                                value=True,
-                                info="Enable Self-Attention Guidance for improved structural coherence and artistic blending",
-                            )
-                            sag_scale = gr.Slider(
-                                minimum=0.0,
-                                maximum=3.0,
-                                step=0.1,
-                                value=0.5,
-                                label="SAG Scale",
-                                info="Guidance strength. Higher values provide more structural coherence. Range: 0.0-3.0, Default: 0.5",
-                            )
-                            sag_blur_sigma = gr.Slider(
-                                minimum=0.0,
-                                maximum=5.0,
-                                step=0.1,
-                                value=0.5,
-                                label="SAG Blur Sigma",
-                                info="Blur amount for artistic blending. Higher values create softer, more artistic effects. Range: 0.0-5.0, Default: 0.5",
-                            )
-
-                            # ControlNet Strength Parameters
-                            gr.Markdown(
-                                "### ControlNet Strength (QR Code Preservation)"
-                            )
-                            gr.Markdown(
-                                "**IMPORTANT:** Lower values preserve QR structure better (more scannable). Higher values create more artistic effects but may reduce scannability."
-                            )
-                            controlnet_strength_first = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.0,
-                                step=0.05,
-                                value=0.45,
-                                label="First Pass Strength",
-                                info="Controls how much the AI modifies the QR in the first pass. LOWER = more scannable, HIGHER = more artistic. Try 0.30-0.40 for better scannability. Default: 0.45",
-                            )
-                            controlnet_strength_final = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.0,
-                                step=0.05,
-                                value=0.7,
-                                label="Final Pass Strength",
-                                info="Controls how much the AI modifies the QR in the refinement pass. LOWER = preserves QR structure, HIGHER = more creative. Try 0.55-0.65 for balance. Default: 0.70",
-                            )
-
-                        # The generate button for artistic QR
-                        artistic_generate_btn = gr.Button(
-                            "Generate Artistic QR", variant="primary"
-                        )
-
-                    with gr.Column():
-                        # Examples Gallery (initially visible)
-                        gr.Markdown("### Featured Examples")
-
-                        example_gallery = gr.Gallery(
-                            value=[(ex["image"], ex["label"]) for ex in ARTISTIC_EXAMPLES],
-                            label="Example Gallery",
-                            columns=3,
-                            rows=3,
-                            height="auto",
-                            object_fit="cover",
-                            allow_preview=True,
-                            show_download_button=False,
-                        )
-
-                        # State to track currently selected example index
-                        current_example_index = gr.State(value=None)
-
-                        # The output image for artistic QR (initially hidden)
-                        artistic_output_image = gr.Image(
-                            label="Generated Artistic QR Code",
-                            visible=False,
-                        )
-                        artistic_error_message = gr.Textbox(
-                            label="Status / Errors",
+                        import_status_artistic = gr.Textbox(
+                            label="Import Status",
                             interactive=False,
-                            lines=3,
-                            visible=True,  # Keep visible to show status messages
+                            visible=False,
+                            lines=2,
                         )
-                        # Wrap settings output in accordion (initially hidden)
-                        with gr.Accordion(
-                            "Shareable Settings (JSON)", open=True, visible=False
-                        ) as settings_accordion_artistic:
-                            settings_output_artistic = gr.Textbox(
-                                label="Copy this JSON to share your exact settings",
-                                interactive=True,
-                                lines=5,
-                                show_copy_button=True,
+                        with gr.Row():
+                            load_settings_btn_artistic = gr.Button(
+                                "Load Settings", variant="primary"
+                            )
+                            clear_json_btn_artistic = gr.Button(
+                                "Clear", variant="secondary"
                             )
 
-                        # Button to show examples again (initially hidden)
-                        show_examples_btn = gr.Button(
-                            "🎨 Try Another Example",
-                            variant="secondary",
+                    # Change Settings Manually - separate accordion
+                    with gr.Accordion("Change Settings Manually", open=False):
+                        gr.Markdown(
+                            "**Advanced controls including:** Animation toggle, Color Quantization, FreeU/SAG parameters, ControlNet strength, QR settings, and more."
+                        )
+                        # Negative Prompt
+                        negative_prompt_artistic = gr.Textbox(
+                            label="Negative Prompt",
+                            placeholder="Describe what you don't want in the image",
+                            value="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+                            lines=2,
+                            info="Keywords to avoid in the generated image",
+                        )
+
+                        # Add image size slider for artistic QR
+                        artistic_image_size = gr.Slider(
+                            minimum=512,
+                            maximum=1024,
+                            step=64,
+                            value=640,
+                            label="Image Size",
+                            info="Base size of the generated image. Final output will be 2x this size (e.g., 640 → 1280) due to the two-step enhancement process. Higher values use more VRAM and take longer to process.",
+                        )
+
+                        # Add border size slider for artistic QR
+                        artistic_border_size = gr.Slider(
+                            minimum=0,
+                            maximum=8,
+                            step=1,
+                            value=6,
+                            label="QR Code Border Size",
+                            info="Number of modules (squares) to use as border around the QR code. Higher values add more whitespace.",
+                        )
+
+                        # Add error correction dropdown for artistic QR
+                        artistic_error_correction = gr.Dropdown(
+                            choices=[
+                                "Low (7%)",
+                                "Medium (15%)",
+                                "Quartile (25%)",
+                                "High (30%)",
+                            ],
+                            value="Medium (15%)",
+                            label="Error Correction Level",
+                            info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. High (30%) is recommended for artistic QR codes.",
+                        )
+
+                        # Add module size slider for artistic QR
+                        artistic_module_size = gr.Slider(
+                            minimum=4,
+                            maximum=16,
+                            step=1,
+                            value=14,
+                            label="QR Module Size",
+                            info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 14 is a good starting point.",
+                        )
+
+                        # Add module drawer dropdown with style examples for artistic QR
+                        artistic_module_drawer = gr.Dropdown(
+                            choices=[
+                                "Square",
+                                "Gapped square",
+                                "Circle",
+                                "Rounded",
+                                "Vertical bars",
+                                "Horizontal bars",
+                            ],
+                            value="Square",
+                            label="QR Code Style",
+                            info="Select the style of the QR code modules (squares). See examples below. Different styles can give your QR code a unique look while maintaining scannability.",
+                        )
+
+                        # Add style examples with labels
+                        gr.Markdown("### Style Examples:")
+
+                        # First row of examples
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Square**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/square.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Gapped Square**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/gapped_square.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Circle**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/circle.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+
+                        # Second row of examples
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Rounded**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/rounded.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Vertical Bars**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/vertical-bars.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Horizontal Bars**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/horizontal-bars.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+
+                        # Add upscale checkbox
+                        artistic_enable_upscale = gr.Checkbox(
+                            label="Enable Upscaling",
+                            value=False,
+                            info="Enable upscaling with RealESRGAN for higher quality output (disabled by default to reduce GPU time)",
+                        )
+
+                        # Animation toggle
+                        artistic_enable_animation = gr.Checkbox(
+                            label="Enable Animation (Show KSampler Progress)",
+                            value=True,
+                            info="Shows intermediate images every 5 steps during generation. Disable for faster generation.",
+                        )
+
+                        # Stable Cascade QR Filter
+                        gr.Markdown("### Stable Cascade QR Filter")
+                        gr.Markdown(
+                            "Advanced preprocessing filter that improves brightness perception using HSV color space, "
+                            "Gaussian blur, and adaptive thresholding. Based on Stable Cascade implementation."
+                        )
+                        enable_cascade_filter_artistic = gr.Checkbox(
+                            label="Enable Stable Cascade QR Filter",
+                            value=False,
+                            info="Applies HSV-based brightness filter with Gaussian blur (kernel=15) and adaptive thresholding (33%). May improve scannability and aesthetic quality.",
+                        )
+
+                        # Color Quantization Section
+                        gr.Markdown("### Color Quantization (Optional)")
+                        gr.Markdown(
+                            "Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs."
+                        )
+                        artistic_enable_color_quantization = gr.Checkbox(
+                            label="Enable Color Quantization",
+                            value=False,
+                            info="Apply a custom color palette to the generated image",
+                        )
+
+                        artistic_num_colors = gr.Slider(
+                            minimum=2,
+                            maximum=4,
+                            step=1,
+                            value=4,
+                            label="Number of Colors",
+                            info="How many colors to use from the palette (2-4)",
                             visible=False,
                         )
 
-                # When clicking the button, it will trigger the artistic function
-                artistic_generate_btn.click(
-                    fn=generate_artistic_qr,
-                    inputs=[
-                        artistic_prompt_input,
-                        negative_prompt_artistic,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        artistic_enable_upscale,
-                        artistic_enable_animation,
-                        enable_freeu_artistic,
-                        freeu_b1,
-                        freeu_b2,
-                        freeu_s1,
-                        freeu_s2,
-                        enable_sag,
-                        sag_scale,
-                        sag_blur_sigma,
-                        controlnet_strength_first,
-                        controlnet_strength_final,
-                        artistic_enable_color_quantization,
-                        artistic_num_colors,
-                        artistic_color_1,
-                        artistic_color_2,
-                        artistic_color_3,
-                        artistic_color_4,
-                        artistic_apply_gradient_filter,
-                        artistic_gradient_strength,
-                        artistic_variation_steps,
-                    ],
-                    outputs=[
-                        artistic_output_image,
-                        artistic_error_message,
-                        settings_output_artistic,
-                        settings_accordion_artistic,
-                        example_gallery,  # Control gallery visibility
-                        show_examples_btn,  # Control button visibility
-                    ],
-                )
+                        # Colors 1 & 2 (QR code colors - hidden when gradient enabled)
+                        with gr.Row(visible=False) as artistic_color_pickers_row_1_2:
+                            artistic_color_1 = gr.ColorPicker(
+                                label="Color 1 (QR Dark)",
+                                value="#000000",
+                                info="Preserved when using gradients",
+                            )
+                            artistic_color_2 = gr.ColorPicker(
+                                label="Color 2 (QR Light)",
+                                value="#FFFFFF",
+                                info="Preserved when using gradients",
+                            )
 
-                # Load Settings button event handler
-                load_settings_btn_artistic.click(
-                    fn=load_settings_from_json_artistic,
-                    inputs=[import_json_input_artistic],
-                    outputs=[
-                        artistic_prompt_input,
-                        negative_prompt_artistic,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        artistic_enable_upscale,
-                        artistic_enable_animation,
-                        enable_freeu_artistic,
-                        freeu_b1,
-                        freeu_b2,
-                        freeu_s1,
-                        freeu_s2,
-                        enable_sag,
-                        sag_scale,
-                        sag_blur_sigma,
-                        controlnet_strength_first,
-                        controlnet_strength_final,
-                        artistic_enable_color_quantization,
-                        artistic_num_colors,
-                        artistic_color_1,
-                        artistic_color_2,
-                        artistic_color_3,
-                        artistic_color_4,
-                        artistic_apply_gradient_filter,
-                        artistic_gradient_strength,
-                        artistic_variation_steps,
-                        import_status_artistic,
-                    ],
-                )
+                        # Colors 3 & 4 (Background colors - always editable)
+                        with gr.Row(visible=False) as artistic_color_pickers_row_3_4:
+                            artistic_color_3 = gr.ColorPicker(
+                                label="Color 3 (Background)", value="#FF0000"
+                            )
+                            artistic_color_4 = gr.ColorPicker(
+                                label="Color 4 (Background)", value="#00FF00"
+                            )
 
-                # Clear button event handler for artistic tab
-                clear_json_btn_artistic.click(
-                    fn=lambda: ("", gr.update(visible=False)),
-                    inputs=[],
-                    outputs=[import_json_input_artistic, import_status_artistic],
-                )
+                        # Gradient Filter Section (nested under color quantization)
+                        artistic_apply_gradient_filter = gr.Checkbox(
+                            label="Apply Gradient Filter",
+                            value=False,
+                            visible=False,
+                            elem_id="artistic_gradient_checkbox",
+                            info="Create gradient variations around colors 3-4 while preserving colors 1-2 for QR scannability",
+                        )
 
-                # Seed slider visibility toggle for artistic tab
-                artistic_use_custom_seed.change(
-                    fn=lambda x: gr.update(visible=x),
-                    inputs=[artistic_use_custom_seed],
-                    outputs=[artistic_seed],
-                )
+                        artistic_gradient_strength = gr.Slider(
+                            minimum=0.1,
+                            maximum=1.0,
+                            step=0.1,
+                            value=0.3,
+                            label="Gradient Strength",
+                            info="Brightness variation (0.3 = ±30%)",
+                            visible=False,
+                        )
 
-                # Event handler for "Try Another Example" button
-                def show_examples_again(current_idx):
-                    """Show the gallery with a random different example and load its settings"""
-                    # Pick a random index different from current
-                    available = [i for i in range(len(ARTISTIC_EXAMPLES)) if i != current_idx]
-                    new_idx = random.choice(available) if available else 0
-                    example = ARTISTIC_EXAMPLES[new_idx]
-                    return (
-                        gr.update(visible=False),  # Hide output image
-                        "Settings loaded! Click 'Generate Artistic QR' to create your QR code",  # Status message
-                        gr.update(visible=False),  # Hide settings accordion
-                        gr.update(visible=True, selected_index=new_idx),  # Show gallery with random selection
-                        gr.update(visible=False),  # Hide this button
-                        # Load the example settings
-                        example["prompt"],
-                        example["text_input"],
-                        example["input_type"],
-                        example["image_size"],
-                        example["border_size"],
-                        example["error_correction"],
-                        example["module_size"],
-                        example["module_drawer"],
-                        example["use_custom_seed"],
-                        example["seed"],
-                        example["sag_blur_sigma"],
-                        new_idx,  # Update current example index
+                        artistic_variation_steps = gr.Slider(
+                            minimum=1,
+                            maximum=10,
+                            step=1,
+                            value=5,
+                            label="Variation Steps",
+                            info="Number of gradient steps (higher = smoother)",
+                            visible=False,
+                        )
+
+                        # Visibility toggle for gradient filter
+                        artistic_apply_gradient_filter.change(
+                            fn=lambda gradient_enabled: (
+                                gr.update(visible=gradient_enabled),
+                                gr.update(visible=gradient_enabled),
+                                gr.update(
+                                    visible=not gradient_enabled
+                                ),  # Hide colors 1&2 when gradient ON
+                            ),
+                            inputs=[artistic_apply_gradient_filter],
+                            outputs=[
+                                artistic_gradient_strength,
+                                artistic_variation_steps,
+                                artistic_color_pickers_row_1_2,
+                            ],
+                        )
+
+                        # Visibility toggle for color quantization
+                        artistic_enable_color_quantization.change(
+                            fn=lambda enabled: (
+                                gr.update(visible=enabled),
+                                gr.update(visible=enabled),
+                                gr.update(visible=enabled),
+                                gr.update(visible=enabled),
+                            ),
+                            inputs=[artistic_enable_color_quantization],
+                            outputs=[
+                                artistic_num_colors,
+                                artistic_color_pickers_row_1_2,
+                                artistic_color_pickers_row_3_4,
+                                artistic_apply_gradient_filter,
+                            ],
+                        )
+
+                        # Add seed controls for artistic QR
+                        artistic_use_custom_seed = gr.Checkbox(
+                            label="Use Custom Seed",
+                            value=True,
+                            info="Enable to use a specific seed for reproducible results",
+                        )
+                        artistic_seed = gr.Slider(
+                            minimum=0,
+                            maximum=2**32 - 1,
+                            step=1,
+                            value=718313,
+                            label="Seed",
+                            visible=True,  # Initially visible since artistic_use_custom_seed=True
+                            info="Seed value for reproducibility. Same seed with same settings will produce the same result.",
+                        )
+
+                        # FreeU Parameters
+                        gr.Markdown("### FreeU Quality Enhancement")
+                        enable_freeu_artistic = gr.Checkbox(
+                            label="Enable FreeU",
+                            value=True,
+                            info="Enable FreeU quality enhancement (enabled by default for artistic pipeline)",
+                        )
+                        freeu_b1 = gr.Slider(
+                            minimum=1.0,
+                            maximum=1.6,
+                            step=0.01,
+                            value=1.4,
+                            label="FreeU B1 (Backbone 1)",
+                            info="Backbone feature enhancement for first layer. Higher values improve detail but may reduce blending. Range: 1.0-1.6, Default: 1.4",
+                        )
+                        freeu_b2 = gr.Slider(
+                            minimum=1.0,
+                            maximum=1.6,
+                            step=0.01,
+                            value=1.3,
+                            label="FreeU B2 (Backbone 2)",
+                            info="Backbone feature enhancement for second layer. Higher values improve texture. Range: 1.0-1.6, Default: 1.3",
+                        )
+                        freeu_s1 = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.5,
+                            step=0.01,
+                            value=0.0,
+                            label="FreeU S1 (Skip 1)",
+                            info="Skip connection dampening for first layer. Lower values hide QR structure more. Range: 0.0-1.5, Default: 0.0",
+                        )
+                        freeu_s2 = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.5,
+                            step=0.01,
+                            value=1.3,
+                            label="FreeU S2 (Skip 2)",
+                            info="Skip connection dampening for second layer. Balances scannability. Range: 0.0-1.5, Default: 1.3",
+                        )
+
+                        # SAG (Self-Attention Guidance) Parameters
+                        gr.Markdown("### SAG (Self-Attention Guidance)")
+                        enable_sag = gr.Checkbox(
+                            label="Enable SAG",
+                            value=True,
+                            info="Enable Self-Attention Guidance for improved structural coherence and artistic blending",
+                        )
+                        sag_scale = gr.Slider(
+                            minimum=0.0,
+                            maximum=3.0,
+                            step=0.1,
+                            value=0.5,
+                            label="SAG Scale",
+                            info="Guidance strength. Higher values provide more structural coherence. Range: 0.0-3.0, Default: 0.5",
+                        )
+                        sag_blur_sigma = gr.Slider(
+                            minimum=0.0,
+                            maximum=5.0,
+                            step=0.1,
+                            value=0.5,
+                            label="SAG Blur Sigma",
+                            info="Blur amount for artistic blending. Higher values create softer, more artistic effects. Range: 0.0-5.0, Default: 0.5",
+                        )
+
+                        # ControlNet Strength Parameters
+                        gr.Markdown("### ControlNet Strength (QR Code Preservation)")
+                        gr.Markdown(
+                            "**IMPORTANT:** Lower values preserve QR structure better (more scannable). Higher values create more artistic effects but may reduce scannability."
+                        )
+                        controlnet_strength_first = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            step=0.05,
+                            value=0.45,
+                            label="First Pass Strength",
+                            info="Controls how much the AI modifies the QR in the first pass. LOWER = more scannable, HIGHER = more artistic. Try 0.30-0.40 for better scannability. Default: 0.45",
+                        )
+                        controlnet_strength_final = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            step=0.05,
+                            value=0.7,
+                            label="Final Pass Strength",
+                            info="Controls how much the AI modifies the QR in the refinement pass. LOWER = preserves QR structure, HIGHER = more creative. Try 0.55-0.65 for balance. Default: 0.70",
+                        )
+
+                    # The generate button for artistic QR
+                    artistic_generate_btn = gr.Button(
+                        "Generate Artistic QR", variant="primary"
                     )
 
-                show_examples_btn.click(
-                    fn=show_examples_again,
-                    inputs=[current_example_index],
-                    outputs=[
-                        artistic_output_image,
-                        artistic_error_message,
-                        settings_accordion_artistic,
-                        example_gallery,
-                        show_examples_btn,
-                        # Settings outputs
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                        current_example_index,
-                    ],
-                )
+                with gr.Column():
+                    # Examples Gallery (initially visible)
+                    gr.Markdown("### Featured Examples")
 
-                # Event handler to load settings when user clicks an example
-                def load_example_settings(evt: gr.SelectData):
-                    """Load settings when user clicks an example image"""
-                    example = ARTISTIC_EXAMPLES[evt.index]
-                    return (
-                        example["prompt"],
-                        example["text_input"],
-                        example["input_type"],
-                        example["image_size"],
-                        example["border_size"],
-                        example["error_correction"],
-                        example["module_size"],
-                        example["module_drawer"],
-                        example["use_custom_seed"],
-                        example["seed"],
-                        example["sag_blur_sigma"],
-                        gr.update(visible=False),  # Hide output image
-                        "Settings loaded! Click 'Generate Artistic QR' to create your QR code",  # Show in Status/Errors
-                        gr.update(visible=False),  # Hide settings accordion
-                        evt.index,  # Store the selected example index
+                    example_gallery = gr.Gallery(
+                        value=[(ex["image"], ex["label"]) for ex in ARTISTIC_EXAMPLES],
+                        label="Example Gallery",
+                        columns=3,
+                        rows=3,
+                        height="auto",
+                        object_fit="cover",
+                        allow_preview=True,
+                        show_download_button=False,
                     )
 
-                # Attach the event handler
-                example_gallery.select(
-                    fn=load_example_settings,
-                    inputs=None,
-                    outputs=[
-                        artistic_prompt_input,
-                        artistic_text_input,
-                        artistic_input_type,
-                        artistic_image_size,
-                        artistic_border_size,
-                        artistic_error_correction,
-                        artistic_module_size,
-                        artistic_module_drawer,
-                        artistic_use_custom_seed,
-                        artistic_seed,
-                        sag_blur_sigma,
-                        artistic_output_image,  # Reset visibility
-                        artistic_error_message,  # Show status message
-                        settings_accordion_artistic,  # Reset visibility
-                        current_example_index,  # Store the selected example index
-                    ],
+                    # State to track currently selected example index
+                    current_example_index = gr.State(value=None)
+
+                    # The output image for artistic QR (initially hidden)
+                    artistic_output_image = gr.Image(
+                        label="Generated Artistic QR Code",
+                        visible=False,
+                    )
+                    artistic_error_message = gr.Textbox(
+                        label="Status / Errors",
+                        interactive=False,
+                        lines=3,
+                        visible=True,  # Keep visible to show status messages
+                    )
+                    # Wrap settings output in accordion (initially hidden)
+                    with gr.Accordion(
+                        "Shareable Settings (JSON)", open=True, visible=False
+                    ) as settings_accordion_artistic:
+                        settings_output_artistic = gr.Textbox(
+                            label="Copy this JSON to share your exact settings",
+                            interactive=True,
+                            lines=5,
+                            show_copy_button=True,
+                        )
+
+                    # Button to show examples again (initially hidden)
+                    show_examples_btn = gr.Button(
+                        "🎨 Try Another Example",
+                        variant="secondary",
+                        visible=False,
+                    )
+
+            # When clicking the button, it will trigger the artistic function
+            artistic_generate_btn.click(
+                fn=generate_artistic_qr,
+                inputs=[
+                    artistic_prompt_input,
+                    negative_prompt_artistic,
+                    artistic_text_input,
+                    artistic_input_type,
+                    artistic_image_size,
+                    artistic_border_size,
+                    artistic_error_correction,
+                    artistic_module_size,
+                    artistic_module_drawer,
+                    artistic_use_custom_seed,
+                    artistic_seed,
+                    artistic_enable_upscale,
+                    artistic_enable_animation,
+                    enable_cascade_filter_artistic,
+                    enable_freeu_artistic,
+                    freeu_b1,
+                    freeu_b2,
+                    freeu_s1,
+                    freeu_s2,
+                    enable_sag,
+                    sag_scale,
+                    sag_blur_sigma,
+                    controlnet_strength_first,
+                    controlnet_strength_final,
+                    artistic_enable_color_quantization,
+                    artistic_num_colors,
+                    artistic_color_1,
+                    artistic_color_2,
+                    artistic_color_3,
+                    artistic_color_4,
+                    artistic_apply_gradient_filter,
+                    artistic_gradient_strength,
+                    artistic_variation_steps,
+                ],
+                outputs=[
+                    artistic_output_image,
+                    artistic_error_message,
+                    settings_output_artistic,
+                    settings_accordion_artistic,
+                    example_gallery,  # Control gallery visibility
+                    show_examples_btn,  # Control button visibility
+                ],
+            )
+
+            # Load Settings button event handler
+            load_settings_btn_artistic.click(
+                fn=load_settings_from_json_artistic,
+                inputs=[import_json_input_artistic],
+                outputs=[
+                    artistic_prompt_input,
+                    negative_prompt_artistic,
+                    artistic_text_input,
+                    artistic_input_type,
+                    artistic_image_size,
+                    artistic_border_size,
+                    artistic_error_correction,
+                    artistic_module_size,
+                    artistic_module_drawer,
+                    artistic_use_custom_seed,
+                    artistic_seed,
+                    artistic_enable_upscale,
+                    artistic_enable_animation,
+                    enable_freeu_artistic,
+                    freeu_b1,
+                    freeu_b2,
+                    freeu_s1,
+                    freeu_s2,
+                    enable_sag,
+                    sag_scale,
+                    sag_blur_sigma,
+                    controlnet_strength_first,
+                    controlnet_strength_final,
+                    artistic_enable_color_quantization,
+                    artistic_num_colors,
+                    artistic_color_1,
+                    artistic_color_2,
+                    artistic_color_3,
+                    artistic_color_4,
+                    artistic_apply_gradient_filter,
+                    artistic_gradient_strength,
+                    artistic_variation_steps,
+                    import_status_artistic,
+                ],
+            )
+
+            # Clear button event handler for artistic tab
+            clear_json_btn_artistic.click(
+                fn=lambda: ("", gr.update(visible=False)),
+                inputs=[],
+                outputs=[import_json_input_artistic, import_status_artistic],
+            )
+
+            # Seed slider visibility toggle for artistic tab
+            artistic_use_custom_seed.change(
+                fn=lambda x: gr.update(visible=x),
+                inputs=[artistic_use_custom_seed],
+                outputs=[artistic_seed],
+            )
+
+            # Event handler for "Try Another Example" button
+            def show_examples_again(current_idx):
+                """Show the gallery with a random different example and load its settings"""
+                # Pick a random index different from current
+                available = [
+                    i for i in range(len(ARTISTIC_EXAMPLES)) if i != current_idx
+                ]
+                new_idx = random.choice(available) if available else 0
+                example = ARTISTIC_EXAMPLES[new_idx]
+                return (
+                    gr.update(visible=False),  # Hide output image
+                    "Settings loaded! Click 'Generate Artistic QR' to create your QR code",  # Status message
+                    gr.update(visible=False),  # Hide settings accordion
+                    gr.update(
+                        visible=True, selected_index=new_idx
+                    ),  # Show gallery with random selection
+                    gr.update(visible=False),  # Hide this button
+                    # Load the example settings
+                    example["prompt"],
+                    example["text_input"],
+                    example["input_type"],
+                    example["image_size"],
+                    example["border_size"],
+                    example["error_correction"],
+                    example["module_size"],
+                    example["module_drawer"],
+                    example["use_custom_seed"],
+                    example["seed"],
+                    example["sag_blur_sigma"],
+                    new_idx,  # Update current example index
                 )
 
-            # STANDARD QR TAB
-            with gr.TabItem("Standard QR"):
-                # Short description
-                gr.Markdown("""
+            show_examples_btn.click(
+                fn=show_examples_again,
+                inputs=[current_example_index],
+                outputs=[
+                    artistic_output_image,
+                    artistic_error_message,
+                    settings_accordion_artistic,
+                    example_gallery,
+                    show_examples_btn,
+                    # Settings outputs
+                    artistic_prompt_input,
+                    artistic_text_input,
+                    artistic_input_type,
+                    artistic_image_size,
+                    artistic_border_size,
+                    artistic_error_correction,
+                    artistic_module_size,
+                    artistic_module_drawer,
+                    artistic_use_custom_seed,
+                    artistic_seed,
+                    sag_blur_sigma,
+                    current_example_index,
+                ],
+            )
+
+            # Event handler to load settings when user clicks an example
+            def load_example_settings(evt: gr.SelectData):
+                """Load settings when user clicks an example image"""
+                example = ARTISTIC_EXAMPLES[evt.index]
+                return (
+                    example["prompt"],
+                    example["text_input"],
+                    example["input_type"],
+                    example["image_size"],
+                    example["border_size"],
+                    example["error_correction"],
+                    example["module_size"],
+                    example["module_drawer"],
+                    example["use_custom_seed"],
+                    example["seed"],
+                    example["sag_blur_sigma"],
+                    gr.update(visible=False),  # Hide output image
+                    "Settings loaded! Click 'Generate Artistic QR' to create your QR code",  # Show in Status/Errors
+                    gr.update(visible=False),  # Hide settings accordion
+                    evt.index,  # Store the selected example index
+                )
+
+            # Attach the event handler
+            example_gallery.select(
+                fn=load_example_settings,
+                inputs=None,
+                outputs=[
+                    artistic_prompt_input,
+                    artistic_text_input,
+                    artistic_input_type,
+                    artistic_image_size,
+                    artistic_border_size,
+                    artistic_error_correction,
+                    artistic_module_size,
+                    artistic_module_drawer,
+                    artistic_use_custom_seed,
+                    artistic_seed,
+                    sag_blur_sigma,
+                    artistic_output_image,  # Reset visibility
+                    artistic_error_message,  # Show status message
+                    settings_accordion_artistic,  # Reset visibility
+                    current_example_index,  # Store the selected example index
+                ],
+            )
+
+        # STANDARD QR TAB
+        with gr.TabItem("Standard QR"):
+            # Short description
+            gr.Markdown("""
                 ⚡ **2x faster than Artistic pipeline** - perfect for quota management
 
                 🎯 **More stable and scannable results** with proven reliability
@@ -3583,9 +3687,9 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 🛠️ **Advanced QR customization** with module styles and border controls
                 """)
 
-                # Full documentation in collapsed accordion
-                with gr.Accordion("📖 Full Documentation & Tips", open=False):
-                    gr.Markdown("""
+            # Full documentation in collapsed accordion
+            with gr.Accordion("📖 Full Documentation & Tips", open=False):
+                gr.Markdown("""
                     ### About Standard QR Pipeline
                     The Standard pipeline uses Stable Diffusion 1.5 with ControlNet for fast, reliable QR code generation. This pipeline offers:
                     - ~2x faster generation than Artistic (saves GPU quota)
@@ -3613,574 +3717,570 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     Choose Standard when you need speed and guaranteed scannability!
                     """)
 
-                with gr.Row():
-                    with gr.Column():
-                        # Add input type selector
-                        input_type = gr.Radio(
-                            choices=["URL", "Plain Text"],
-                            value="URL",
-                            label="Input Type",
-                            info="URL: For web links (auto-removes https://). Plain Text: For VCARD, WiFi, calendar, location, etc. (no manipulation)",
-                        )
+            with gr.Row():
+                with gr.Column():
+                    # Add input type selector
+                    input_type = gr.Radio(
+                        choices=["URL", "Plain Text"],
+                        value="URL",
+                        label="Input Type",
+                        info="URL: For web links (auto-removes https://). Plain Text: For VCARD, WiFi, calendar, location, etc. (no manipulation)",
+                    )
 
-                        # Add inputs
-                        prompt_input = gr.Textbox(
-                            label="Prompt",
-                            placeholder="Describe the image you want to generate (check examples below for inspiration)",
-                            value="some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+                    # Add inputs
+                    prompt_input = gr.Textbox(
+                        label="Prompt",
+                        placeholder="Describe the image you want to generate (check examples below for inspiration)",
+                        value="some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+                        lines=3,
+                    )
+                    text_input = gr.Textbox(
+                        label="QR Code Content",
+                        placeholder="Enter URL or plain text",
+                        value="https://www.google.com",
+                        lines=3,
+                    )
+
+                    # Import Settings section - separate accordion
+                    with gr.Accordion("Import Settings from JSON", open=False):
+                        gr.Markdown(
+                            "Paste a settings JSON string (copied from a previous generation) to load all parameters at once."
+                        )
+                        import_json_input_standard = gr.Textbox(
+                            label="Paste Settings JSON",
+                            placeholder='{"pipeline": "standard", "prompt": "...", "seed": 718313, ...}',
                             lines=3,
                         )
-                        text_input = gr.Textbox(
-                            label="QR Code Content",
-                            placeholder="Enter URL or plain text",
-                            value="https://www.google.com",
-                            lines=3,
-                        )
-
-                        # Import Settings section - separate accordion
-                        with gr.Accordion("Import Settings from JSON", open=False):
-                            gr.Markdown(
-                                "Paste a settings JSON string (copied from a previous generation) to load all parameters at once."
-                            )
-                            import_json_input_standard = gr.Textbox(
-                                label="Paste Settings JSON",
-                                placeholder='{"pipeline": "standard", "prompt": "...", "seed": 718313, ...}',
-                                lines=3,
-                            )
-                            import_status_standard = gr.Textbox(
-                                label="Import Status",
-                                interactive=False,
-                                visible=False,
-                                lines=2,
-                            )
-                            with gr.Row():
-                                load_settings_btn_standard = gr.Button(
-                                    "Load Settings", variant="primary"
-                                )
-                                clear_json_btn_standard = gr.Button(
-                                    "Clear", variant="secondary"
-                                )
-
-                        # Change Settings Manually - separate accordion
-                        with gr.Accordion("Change Settings Manually", open=False):
-                            gr.Markdown(
-                                "**Advanced controls including:** Animation toggle, Color Quantization, ControlNet strength, QR settings, and more."
-                            )
-                            # Negative Prompt
-                            negative_prompt_standard = gr.Textbox(
-                                label="Negative Prompt",
-                                placeholder="Describe what you don't want in the image",
-                                value="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
-                                lines=2,
-                                info="Keywords to avoid in the generated image",
-                            )
-
-                            # Add image size slider
-                            image_size = gr.Slider(
-                                minimum=512,
-                                maximum=1024,
-                                step=64,
-                                value=512,
-                                label="Image Size",
-                                info="Base size of the generated image. Final output will be 2x this size (e.g., 512 → 1024) due to the two-step enhancement process. Higher values use more VRAM and take longer to process.",
-                            )
-
-                            # Add border size slider
-                            border_size = gr.Slider(
-                                minimum=0,
-                                maximum=8,
-                                step=1,
-                                value=4,
-                                label="QR Code Border Size",
-                                info="Number of modules (squares) to use as border around the QR code. Higher values add more whitespace.",
-                            )
-
-                            # Add error correction dropdown
-                            error_correction = gr.Dropdown(
-                                choices=[
-                                    "Low (7%)",
-                                    "Medium (15%)",
-                                    "Quartile (25%)",
-                                    "High (30%)",
-                                ],
-                                value="Medium (15%)",
-                                label="Error Correction Level",
-                                info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. Medium (15%) is a good starting point for most uses.",
-                            )
-
-                            # Add module size slider
-                            module_size = gr.Slider(
-                                minimum=4,
-                                maximum=16,
-                                step=1,
-                                value=12,
-                                label="QR Module Size",
-                                info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 12 is a good starting point.",
-                            )
-
-                            # Add module drawer dropdown with style examples
-                            module_drawer = gr.Dropdown(
-                                choices=[
-                                    "Square",
-                                    "Gapped square",
-                                    "Circle",
-                                    "Rounded",
-                                    "Vertical bars",
-                                    "Horizontal bars",
-                                ],
-                                value="Square",
-                                label="QR Code Style",
-                                info="Select the style of the QR code modules (squares). See examples below. Different styles can give your QR code a unique look while maintaining scannability.",
-                            )
-
-                            # Add style examples with labels
-                            gr.Markdown("### Style Examples:")
-
-                            # First row of examples
-                            with gr.Row():
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Square**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/square.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Gapped Square**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/gapped_square.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Circle**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/circle.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-
-                            # Second row of examples
-                            with gr.Row():
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Rounded**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/rounded.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Vertical Bars**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/vertical-bars.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-                                with gr.Column(scale=1, min_width=0):
-                                    gr.Markdown("**Horizontal Bars**", show_label=False)
-                                    gr.Image(
-                                        "custom_nodes/ComfyQR/img/horizontal-bars.png",
-                                        width=100,
-                                        show_label=False,
-                                        show_download_button=False,
-                                    )
-
-                            # Add upscale checkbox
-                            enable_upscale = gr.Checkbox(
-                                label="Enable Upscaling",
-                                value=False,
-                                info="Enable upscaling with RealESRGAN for higher quality output (disabled by default for standard pipeline)",
-                            )
-
-                            # Animation toggle
-                            enable_animation = gr.Checkbox(
-                                label="Enable Animation (Show KSampler Progress)",
-                                value=True,
-                                info="Shows intermediate images every 5 steps during generation. Disable for faster generation.",
-                            )
-
-                            # Color Quantization Section
-                            gr.Markdown("### Color Quantization (Optional)")
-                            gr.Markdown(
-                                "Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs."
-                            )
-                            enable_color_quantization = gr.Checkbox(
-                                label="Enable Color Quantization",
-                                value=False,
-                                info="Apply a custom color palette to the generated image",
-                            )
-
-                            num_colors = gr.Slider(
-                                minimum=2,
-                                maximum=4,
-                                step=1,
-                                value=4,
-                                label="Number of Colors",
-                                info="How many colors to use from the palette (2-4)",
-                                visible=False,
-                            )
-
-                            # Colors 1 & 2 (QR code colors - hidden when gradient enabled)
-                            with gr.Row(visible=False) as color_pickers_row_1_2:
-                                color_1 = gr.ColorPicker(
-                                    label="Color 1 (QR Dark)",
-                                    value="#000000",
-                                    info="Preserved when using gradients",
-                                )
-                                color_2 = gr.ColorPicker(
-                                    label="Color 2 (QR Light)",
-                                    value="#FFFFFF",
-                                    info="Preserved when using gradients",
-                                )
-
-                            # Colors 3 & 4 (Background colors - always editable)
-                            with gr.Row(visible=False) as color_pickers_row_3_4:
-                                color_3 = gr.ColorPicker(
-                                    label="Color 3 (Background)", value="#FF0000"
-                                )
-                                color_4 = gr.ColorPicker(
-                                    label="Color 4 (Background)", value="#00FF00"
-                                )
-
-                            # Gradient Filter Section (nested under color quantization)
-                            apply_gradient_filter = gr.Checkbox(
-                                label="Apply Gradient Filter",
-                                value=False,
-                                visible=False,
-                                elem_id="gradient_checkbox",
-                                info="Create gradient variations around colors 3-4 while preserving colors 1-2 for QR scannability",
-                            )
-
-                            gradient_strength = gr.Slider(
-                                minimum=0.1,
-                                maximum=1.0,
-                                step=0.1,
-                                value=0.3,
-                                label="Gradient Strength",
-                                info="Brightness variation (0.3 = ±30%)",
-                                visible=False,
-                            )
-
-                            variation_steps = gr.Slider(
-                                minimum=1,
-                                maximum=10,
-                                step=1,
-                                value=5,
-                                label="Variation Steps",
-                                info="Number of gradient steps (higher = smoother)",
-                                visible=False,
-                            )
-
-                            # Visibility toggle for gradient filter
-                            apply_gradient_filter.change(
-                                fn=lambda gradient_enabled: (
-                                    gr.update(visible=gradient_enabled),
-                                    gr.update(visible=gradient_enabled),
-                                    gr.update(
-                                        visible=not gradient_enabled
-                                    ),  # Hide colors 1&2 when gradient ON
-                                ),
-                                inputs=[apply_gradient_filter],
-                                outputs=[
-                                    gradient_strength,
-                                    variation_steps,
-                                    color_pickers_row_1_2,
-                                ],
-                            )
-
-                            # Visibility toggle for color quantization
-                            enable_color_quantization.change(
-                                fn=lambda enabled: (
-                                    gr.update(visible=enabled),
-                                    gr.update(visible=enabled),
-                                    gr.update(visible=enabled),
-                                    gr.update(visible=enabled),
-                                ),
-                                inputs=[enable_color_quantization],
-                                outputs=[
-                                    num_colors,
-                                    color_pickers_row_1_2,
-                                    color_pickers_row_3_4,
-                                    apply_gradient_filter,
-                                ],
-                            )
-
-                            # Add seed controls
-                            use_custom_seed = gr.Checkbox(
-                                label="Use Custom Seed",
-                                value=True,
-                                info="Enable to use a specific seed for reproducible results",
-                            )
-                            seed = gr.Slider(
-                                minimum=0,
-                                maximum=2**32 - 1,
-                                step=1,
-                                value=718313,
-                                label="Seed",
-                                visible=True,  # Initially visible since use_custom_seed=True
-                                info="Seed value for reproducibility. Same seed with same settings will produce the same result.",
-                            )
-
-                            # ControlNet Strength Parameters
-                            gr.Markdown(
-                                "### ControlNet Strength (QR Code Preservation)"
-                            )
-                            gr.Markdown(
-                                "**IMPORTANT:** Lower values preserve QR structure better (more scannable). Higher values create more artistic effects but may reduce scannability."
-                            )
-                            controlnet_strength_standard_first = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.0,
-                                step=0.05,
-                                value=0.45,
-                                label="First Pass Strength (Brightness + Tile)",
-                                info="Controls how much the AI modifies the QR in both ControlNet passes. LOWER = more scannable, HIGHER = more artistic. Try 0.35-0.50 for good balance. Default: 0.45",
-                            )
-                            controlnet_strength_standard_final = gr.Slider(
-                                minimum=0.0,
-                                maximum=1.0,
-                                step=0.05,
-                                value=1.0,
-                                label="Final Pass Strength (Tile Refinement)",
-                                info="Controls the final tile ControlNet pass strength. Usually kept at 1.0 for clarity. Default: 1.0",
-                            )
-
-                        # The generate button
-                        generate_btn = gr.Button(
-                            "Generate Standard QR", variant="primary"
-                        )
-
-                    with gr.Column():
-                        # The output image
-                        output_image = gr.Image(label="Generated Standard QR Code")
-                        error_message = gr.Textbox(
-                            label="Status / Errors",
+                        import_status_standard = gr.Textbox(
+                            label="Import Status",
                             interactive=False,
-                            lines=3,
+                            visible=False,
+                            lines=2,
                         )
-                        # Wrap settings output in accordion (initially hidden)
-                        with gr.Accordion(
-                            "Shareable Settings (JSON)", open=True, visible=False
-                        ) as settings_accordion_standard:
-                            settings_output_standard = gr.Textbox(
-                                label="Copy this JSON to share your exact settings",
-                                interactive=True,
-                                lines=5,
-                                show_copy_button=True,
+                        with gr.Row():
+                            load_settings_btn_standard = gr.Button(
+                                "Load Settings", variant="primary"
+                            )
+                            clear_json_btn_standard = gr.Button(
+                                "Clear", variant="secondary"
                             )
 
-                # When clicking the button, it will trigger the main function
-                generate_btn.click(
-                    fn=generate_standard_qr,
-                    inputs=[
-                        prompt_input,
-                        negative_prompt_standard,
-                        text_input,
-                        input_type,
-                        image_size,
-                        border_size,
-                        error_correction,
-                        module_size,
-                        module_drawer,
-                        use_custom_seed,
-                        seed,
-                        enable_upscale,
-                        enable_animation,
-                        controlnet_strength_standard_first,
-                        controlnet_strength_standard_final,
-                        enable_color_quantization,
-                        num_colors,
-                        color_1,
-                        color_2,
-                        color_3,
-                        color_4,
-                        apply_gradient_filter,
-                        gradient_strength,
-                        variation_steps,
-                    ],
-                    outputs=[
-                        output_image,
-                        error_message,
-                        settings_output_standard,
-                        settings_accordion_standard,
-                    ],
-                    show_progress="full",
-                )
+                    # Change Settings Manually - separate accordion
+                    with gr.Accordion("Change Settings Manually", open=False):
+                        gr.Markdown(
+                            "**Advanced controls including:** Animation toggle, Color Quantization, ControlNet strength, QR settings, and more."
+                        )
+                        # Negative Prompt
+                        negative_prompt_standard = gr.Textbox(
+                            label="Negative Prompt",
+                            placeholder="Describe what you don't want in the image",
+                            value="ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
+                            lines=2,
+                            info="Keywords to avoid in the generated image",
+                        )
 
-                # Load Settings button event handler
-                load_settings_btn_standard.click(
-                    fn=load_settings_from_json_standard,
-                    inputs=[import_json_input_standard],
-                    outputs=[
-                        prompt_input,
-                        negative_prompt_standard,
-                        text_input,
-                        input_type,
-                        image_size,
-                        border_size,
-                        error_correction,
-                        module_size,
-                        module_drawer,
-                        use_custom_seed,
-                        seed,
-                        enable_upscale,
-                        enable_animation,
-                        controlnet_strength_standard_first,
-                        controlnet_strength_standard_final,
-                        enable_color_quantization,
-                        num_colors,
-                        color_1,
-                        color_2,
-                        color_3,
-                        color_4,
-                        apply_gradient_filter,
-                        gradient_strength,
-                        variation_steps,
-                        import_status_standard,
-                    ],
-                )
+                        # Add image size slider
+                        image_size = gr.Slider(
+                            minimum=512,
+                            maximum=1024,
+                            step=64,
+                            value=512,
+                            label="Image Size",
+                            info="Base size of the generated image. Final output will be 2x this size (e.g., 512 → 1024) due to the two-step enhancement process. Higher values use more VRAM and take longer to process.",
+                        )
 
-                # Clear button event handler
-                clear_json_btn_standard.click(
-                    fn=lambda: ("", gr.update(visible=False)),
-                    inputs=[],
-                    outputs=[import_json_input_standard, import_status_standard],
-                )
+                        # Add border size slider
+                        border_size = gr.Slider(
+                            minimum=0,
+                            maximum=8,
+                            step=1,
+                            value=4,
+                            label="QR Code Border Size",
+                            info="Number of modules (squares) to use as border around the QR code. Higher values add more whitespace.",
+                        )
 
-                # Seed slider visibility toggle
-                use_custom_seed.change(
-                    fn=lambda x: gr.update(visible=x),
-                    inputs=[use_custom_seed],
-                    outputs=[seed],
-                )
+                        # Add error correction dropdown
+                        error_correction = gr.Dropdown(
+                            choices=[
+                                "Low (7%)",
+                                "Medium (15%)",
+                                "Quartile (25%)",
+                                "High (30%)",
+                            ],
+                            value="Medium (15%)",
+                            label="Error Correction Level",
+                            info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. Medium (15%) is a good starting point for most uses.",
+                        )
 
-                # Add examples
-                examples = [
-                    [
-                        "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-                        "https://www.google.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                    [
-                        "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-                        "https://store.steampowered.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                    [
-                        "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
-                        "https://github.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                    [
-                        "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
-                        "https://twitter.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                    [
-                        "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
-                        "https://linkedin.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                    [
-                        "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
-                        "https://instagram.com",
-                        "URL",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                    [
-                        "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
-                        "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nORG:Acme Corporation\nTITLE:Software Engineer\nTEL:+1-555-123-4567\nEMAIL:john.doe@example.com\nEND:VCARD",
-                        "Plain Text",
-                        832,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                    [
-                        "wifi network symbol, modern tech, digital art, glowing blue, detailed, 8k, ultra detailed",
-                        "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
-                        "Plain Text",
-                        576,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                    [
-                        "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
-                        "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
-                        "Plain Text",
-                        832,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                    [
-                        "location pin on map, travel destination, scenic view, detailed cartography, 8k, ultra detailed",
-                        "geo:37.7749,-122.4194",
-                        "Plain Text",
-                        512,
-                        4,
-                        "Medium (15%)",
-                        12,
-                        "Square",
-                    ],
-                ]
+                        # Add module size slider
+                        module_size = gr.Slider(
+                            minimum=4,
+                            maximum=16,
+                            step=1,
+                            value=12,
+                            label="QR Module Size",
+                            info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 12 is a good starting point.",
+                        )
 
-                gr.Examples(
-                    examples=examples,
-                    inputs=[
-                        prompt_input,
-                        text_input,
-                        input_type,
-                        image_size,
-                        border_size,
-                        error_correction,
-                        module_size,
-                        module_drawer,
-                    ],
-                    cache_examples=False,  # Caching would require all 24 function parameters in examples
-                    examples_per_page=10,
-                    label="Example Presets (Click to Load)",
-                )
+                        # Add module drawer dropdown with style examples
+                        module_drawer = gr.Dropdown(
+                            choices=[
+                                "Square",
+                                "Gapped square",
+                                "Circle",
+                                "Rounded",
+                                "Vertical bars",
+                                "Horizontal bars",
+                            ],
+                            value="Square",
+                            label="QR Code Style",
+                            info="Select the style of the QR code modules (squares). See examples below. Different styles can give your QR code a unique look while maintaining scannability.",
+                        )
 
-            # ARTISTIC QR TAB
+                        # Add style examples with labels
+                        gr.Markdown("### Style Examples:")
+
+                        # First row of examples
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Square**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/square.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Gapped Square**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/gapped_square.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Circle**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/circle.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+
+                        # Second row of examples
+                        with gr.Row():
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Rounded**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/rounded.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Vertical Bars**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/vertical-bars.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+                            with gr.Column(scale=1, min_width=0):
+                                gr.Markdown("**Horizontal Bars**", show_label=False)
+                                gr.Image(
+                                    "custom_nodes/ComfyQR/img/horizontal-bars.png",
+                                    width=100,
+                                    show_label=False,
+                                    show_download_button=False,
+                                )
+
+                        # Add upscale checkbox
+                        enable_upscale = gr.Checkbox(
+                            label="Enable Upscaling",
+                            value=False,
+                            info="Enable upscaling with RealESRGAN for higher quality output (disabled by default for standard pipeline)",
+                        )
+
+                        # Animation toggle
+                        enable_animation = gr.Checkbox(
+                            label="Enable Animation (Show KSampler Progress)",
+                            value=True,
+                            info="Shows intermediate images every 5 steps during generation. Disable for faster generation.",
+                        )
+
+                        # Color Quantization Section
+                        gr.Markdown("### Color Quantization (Optional)")
+                        gr.Markdown(
+                            "Use this option to specify a custom color scheme for your QR code. Perfect for matching brand colors or creating themed designs."
+                        )
+                        enable_color_quantization = gr.Checkbox(
+                            label="Enable Color Quantization",
+                            value=False,
+                            info="Apply a custom color palette to the generated image",
+                        )
+
+                        num_colors = gr.Slider(
+                            minimum=2,
+                            maximum=4,
+                            step=1,
+                            value=4,
+                            label="Number of Colors",
+                            info="How many colors to use from the palette (2-4)",
+                            visible=False,
+                        )
+
+                        # Colors 1 & 2 (QR code colors - hidden when gradient enabled)
+                        with gr.Row(visible=False) as color_pickers_row_1_2:
+                            color_1 = gr.ColorPicker(
+                                label="Color 1 (QR Dark)",
+                                value="#000000",
+                                info="Preserved when using gradients",
+                            )
+                            color_2 = gr.ColorPicker(
+                                label="Color 2 (QR Light)",
+                                value="#FFFFFF",
+                                info="Preserved when using gradients",
+                            )
+
+                        # Colors 3 & 4 (Background colors - always editable)
+                        with gr.Row(visible=False) as color_pickers_row_3_4:
+                            color_3 = gr.ColorPicker(
+                                label="Color 3 (Background)", value="#FF0000"
+                            )
+                            color_4 = gr.ColorPicker(
+                                label="Color 4 (Background)", value="#00FF00"
+                            )
+
+                        # Gradient Filter Section (nested under color quantization)
+                        apply_gradient_filter = gr.Checkbox(
+                            label="Apply Gradient Filter",
+                            value=False,
+                            visible=False,
+                            elem_id="gradient_checkbox",
+                            info="Create gradient variations around colors 3-4 while preserving colors 1-2 for QR scannability",
+                        )
+
+                        gradient_strength = gr.Slider(
+                            minimum=0.1,
+                            maximum=1.0,
+                            step=0.1,
+                            value=0.3,
+                            label="Gradient Strength",
+                            info="Brightness variation (0.3 = ±30%)",
+                            visible=False,
+                        )
+
+                        variation_steps = gr.Slider(
+                            minimum=1,
+                            maximum=10,
+                            step=1,
+                            value=5,
+                            label="Variation Steps",
+                            info="Number of gradient steps (higher = smoother)",
+                            visible=False,
+                        )
+
+                        # Visibility toggle for gradient filter
+                        apply_gradient_filter.change(
+                            fn=lambda gradient_enabled: (
+                                gr.update(visible=gradient_enabled),
+                                gr.update(visible=gradient_enabled),
+                                gr.update(
+                                    visible=not gradient_enabled
+                                ),  # Hide colors 1&2 when gradient ON
+                            ),
+                            inputs=[apply_gradient_filter],
+                            outputs=[
+                                gradient_strength,
+                                variation_steps,
+                                color_pickers_row_1_2,
+                            ],
+                        )
+
+                        # Visibility toggle for color quantization
+                        enable_color_quantization.change(
+                            fn=lambda enabled: (
+                                gr.update(visible=enabled),
+                                gr.update(visible=enabled),
+                                gr.update(visible=enabled),
+                                gr.update(visible=enabled),
+                            ),
+                            inputs=[enable_color_quantization],
+                            outputs=[
+                                num_colors,
+                                color_pickers_row_1_2,
+                                color_pickers_row_3_4,
+                                apply_gradient_filter,
+                            ],
+                        )
+
+                        # Add seed controls
+                        use_custom_seed = gr.Checkbox(
+                            label="Use Custom Seed",
+                            value=True,
+                            info="Enable to use a specific seed for reproducible results",
+                        )
+                        seed = gr.Slider(
+                            minimum=0,
+                            maximum=2**32 - 1,
+                            step=1,
+                            value=718313,
+                            label="Seed",
+                            visible=True,  # Initially visible since use_custom_seed=True
+                            info="Seed value for reproducibility. Same seed with same settings will produce the same result.",
+                        )
+
+                        # ControlNet Strength Parameters
+                        gr.Markdown("### ControlNet Strength (QR Code Preservation)")
+                        gr.Markdown(
+                            "**IMPORTANT:** Lower values preserve QR structure better (more scannable). Higher values create more artistic effects but may reduce scannability."
+                        )
+                        controlnet_strength_standard_first = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            step=0.05,
+                            value=0.45,
+                            label="First Pass Strength (Brightness + Tile)",
+                            info="Controls how much the AI modifies the QR in both ControlNet passes. LOWER = more scannable, HIGHER = more artistic. Try 0.35-0.50 for good balance. Default: 0.45",
+                        )
+                        controlnet_strength_standard_final = gr.Slider(
+                            minimum=0.0,
+                            maximum=1.0,
+                            step=0.05,
+                            value=1.0,
+                            label="Final Pass Strength (Tile Refinement)",
+                            info="Controls the final tile ControlNet pass strength. Usually kept at 1.0 for clarity. Default: 1.0",
+                        )
+
+                    # The generate button
+                    generate_btn = gr.Button("Generate Standard QR", variant="primary")
+
+                with gr.Column():
+                    # The output image
+                    output_image = gr.Image(label="Generated Standard QR Code")
+                    error_message = gr.Textbox(
+                        label="Status / Errors",
+                        interactive=False,
+                        lines=3,
+                    )
+                    # Wrap settings output in accordion (initially hidden)
+                    with gr.Accordion(
+                        "Shareable Settings (JSON)", open=True, visible=False
+                    ) as settings_accordion_standard:
+                        settings_output_standard = gr.Textbox(
+                            label="Copy this JSON to share your exact settings",
+                            interactive=True,
+                            lines=5,
+                            show_copy_button=True,
+                        )
+
+            # When clicking the button, it will trigger the main function
+            generate_btn.click(
+                fn=generate_standard_qr,
+                inputs=[
+                    prompt_input,
+                    negative_prompt_standard,
+                    text_input,
+                    input_type,
+                    image_size,
+                    border_size,
+                    error_correction,
+                    module_size,
+                    module_drawer,
+                    use_custom_seed,
+                    seed,
+                    enable_upscale,
+                    enable_animation,
+                    controlnet_strength_standard_first,
+                    controlnet_strength_standard_final,
+                    enable_color_quantization,
+                    num_colors,
+                    color_1,
+                    color_2,
+                    color_3,
+                    color_4,
+                    apply_gradient_filter,
+                    gradient_strength,
+                    variation_steps,
+                ],
+                outputs=[
+                    output_image,
+                    error_message,
+                    settings_output_standard,
+                    settings_accordion_standard,
+                ],
+                show_progress="full",
+            )
+
+            # Load Settings button event handler
+            load_settings_btn_standard.click(
+                fn=load_settings_from_json_standard,
+                inputs=[import_json_input_standard],
+                outputs=[
+                    prompt_input,
+                    negative_prompt_standard,
+                    text_input,
+                    input_type,
+                    image_size,
+                    border_size,
+                    error_correction,
+                    module_size,
+                    module_drawer,
+                    use_custom_seed,
+                    seed,
+                    enable_upscale,
+                    enable_animation,
+                    controlnet_strength_standard_first,
+                    controlnet_strength_standard_final,
+                    enable_color_quantization,
+                    num_colors,
+                    color_1,
+                    color_2,
+                    color_3,
+                    color_4,
+                    apply_gradient_filter,
+                    gradient_strength,
+                    variation_steps,
+                    import_status_standard,
+                ],
+            )
+
+            # Clear button event handler
+            clear_json_btn_standard.click(
+                fn=lambda: ("", gr.update(visible=False)),
+                inputs=[],
+                outputs=[import_json_input_standard, import_status_standard],
+            )
+
+            # Seed slider visibility toggle
+            use_custom_seed.change(
+                fn=lambda x: gr.update(visible=x),
+                inputs=[use_custom_seed],
+                outputs=[seed],
+            )
+
+            # Add examples
+            examples = [
+                [
+                    "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+                    "https://www.google.com",
+                    "URL",
+                    512,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+                [
+                    "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+                    "https://store.steampowered.com",
+                    "URL",
+                    512,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+                [
+                    "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
+                    "https://github.com",
+                    "URL",
+                    512,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+                [
+                    "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
+                    "https://twitter.com",
+                    "URL",
+                    512,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+                [
+                    "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
+                    "https://linkedin.com",
+                    "URL",
+                    512,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+                [
+                    "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
+                    "https://instagram.com",
+                    "URL",
+                    512,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+                [
+                    "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
+                    "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nORG:Acme Corporation\nTITLE:Software Engineer\nTEL:+1-555-123-4567\nEMAIL:john.doe@example.com\nEND:VCARD",
+                    "Plain Text",
+                    832,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+                [
+                    "wifi network symbol, modern tech, digital art, glowing blue, detailed, 8k, ultra detailed",
+                    "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
+                    "Plain Text",
+                    576,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+                [
+                    "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
+                    "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
+                    "Plain Text",
+                    832,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+                [
+                    "location pin on map, travel destination, scenic view, detailed cartography, 8k, ultra detailed",
+                    "geo:37.7749,-122.4194",
+                    "Plain Text",
+                    512,
+                    4,
+                    "Medium (15%)",
+                    12,
+                    "Square",
+                ],
+            ]
+
+            gr.Examples(
+                examples=examples,
+                inputs=[
+                    prompt_input,
+                    text_input,
+                    input_type,
+                    image_size,
+                    border_size,
+                    error_correction,
+                    module_size,
+                    module_drawer,
+                ],
+                cache_examples=False,  # Caching would require all 24 function parameters in examples
+                examples_per_page=10,
+                label="Example Presets (Click to Load)",
+            )
+
+        # ARTISTIC QR TAB
 
 # Queue is required for gr.Progress() to work!
 demo.queue()
