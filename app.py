@@ -22,6 +22,77 @@ from huggingface_hub import hf_hub_download
 from PIL import Image
 import kornia.color  # For RGB→HSV conversion in Stable Cascade filter
 
+# ── Export helpers (PNG + embedded SVG download) ──────────────────────────────
+import base64
+import io
+import re
+import tempfile
+
+
+def _make_qr_stem(text_input: str, seed: int) -> str:
+    """Build a short human-readable filename stem from QR payload + seed."""
+    slug = re.sub(r"[^a-z0-9]+", "-", text_input.lower()).strip("-")[:30] or "export"
+    return f"ai-qr-{slug}-seed{seed}"
+
+
+def _write_png(img: Image.Image, stem: str) -> str:
+    """Write PNG to a named temp file outside Gradio's cache. Returns path.
+
+    Uses /tmp (OS-managed) rather than Gradio's /tmp/gradio/ cache so the
+    file is not subject to the delete_cache=(3600, 3600) sweep on the Space.
+    """
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", prefix=f"{stem}-", delete=False)
+    img.convert("RGB").save(tmp.name, "PNG")
+    tmp.close()
+    return tmp.name
+
+
+def _write_svg(img: Image.Image, stem: str) -> str:
+    """Write a PNG-embedded SVG to a named temp file. Returns path.
+
+    The SVG wraps the raster image as a base64-encoded PNG inside a valid SVG
+    container. Confirmed scannable and opens correctly in Figma, Illustrator,
+    Safari, and Chrome. Written outside Gradio's cache for the same reason as
+    _write_png — not subject to the 1-hour cache sweep.
+    """
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "PNG")
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    w, h = img.size
+    svg = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        f'<svg xmlns="http://www.w3.org/2000/svg" '
+        f'xmlns:xlink="http://www.w3.org/1999/xlink" '
+        f'width="{w}" height="{h}" viewBox="0 0 {w} {h}">'
+        f"<title>AI QR Code</title>"
+        f'<image href="data:image/png;base64,{b64}" '
+        f'x="0" y="0" width="{w}" height="{h}" '
+        f'preserveAspectRatio="xMidYMid meet"/></svg>'
+    )
+    tmp = tempfile.NamedTemporaryFile(suffix=".svg", prefix=f"{stem}-", delete=False)
+    tmp.write(svg.encode("utf-8"))
+    tmp.close()
+    return tmp.name
+
+
+def _download_png(image, text_input, seed):
+    """Called by DownloadButton at click time — generates PNG on demand."""
+    if image is None:
+        return None
+    img = image if isinstance(image, Image.Image) else Image.fromarray(image)
+    return _write_png(img, _make_qr_stem(str(text_input), int(seed)))
+
+
+def _download_svg(image, text_input, seed):
+    """Called by DownloadButton at click time — generates embedded SVG on demand."""
+    if image is None:
+        return None
+    img = image if isinstance(image, Image.Image) else Image.fromarray(image)
+    return _write_svg(img, _make_qr_stem(str(text_input), int(seed)))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 # ComfyUI imports (after HF hub downloads)
 from comfy import model_management
 from comfy.cli_args import args
@@ -691,6 +762,14 @@ def generate_qr_code_unified(
     variation_steps: int = 5,
     enable_animation: bool = True,
     enable_cascade_filter: bool = False,
+    cascade_blur_kernel: int = 15,
+    cascade_threshold_ratio: float = 0.33,
+    enable_detail_sharpening: bool = False,
+    sharpening_radius: float = 2.0,
+    sharpening_amount: float = 1.5,
+    sharpening_threshold: int = 0,
+    customize_tile_preprocessing: bool = False,
+    tile_pyrup_iters: int = 3,
     gr_progress=None,
 ):
     # Track actual GPU time spent
@@ -772,6 +851,14 @@ def generate_qr_code_unified(
                 variation_steps=variation_steps,
                 enable_animation=enable_animation,
                 enable_cascade_filter=enable_cascade_filter,
+                cascade_blur_kernel=cascade_blur_kernel,
+                cascade_threshold_ratio=cascade_threshold_ratio,
+                enable_detail_sharpening=enable_detail_sharpening,
+                sharpening_radius=sharpening_radius,
+                sharpening_amount=sharpening_amount,
+                sharpening_threshold=sharpening_threshold,
+                customize_tile_preprocessing=customize_tile_preprocessing,
+                tile_pyrup_iters=tile_pyrup_iters,
                 gr_progress=gr_progress,
             ):
                 yield result
@@ -1195,6 +1282,43 @@ def apply_stable_cascade_qr_filter(
     return filtered
 
 
+def apply_detail_sharpening(
+    image: Image.Image, radius: float = 2.0, amount: float = 1.5, threshold: int = 0
+) -> Image.Image:
+    """
+    Apply unsharp mask sharpening to preserve QR details between passes.
+
+    This filter is applied to the first-pass output before the second pass,
+    helping maintain sharp QR code edges when using lower ControlNet strengths.
+
+    Args:
+        image: PIL Image to sharpen
+        radius: Sharpening radius in pixels (1.0-5.0)
+                Higher values = wider sharpening effect
+        amount: Sharpening strength (0.5-3.0)
+                Higher values = stronger sharpening
+        threshold: Minimum brightness change to sharpen (0-10)
+                   0 = sharpen all pixels, higher = sharpen only high-contrast edges
+
+    Returns:
+        Sharpened PIL Image
+    """
+    from PIL import ImageFilter
+
+    # Ensure radius is valid for UnsharpMask (must be positive)
+    radius = max(0.1, radius)
+
+    # Apply unsharp mask filter
+    # PIL's UnsharpMask expects percent as integer (0-100+)
+    sharpened = image.filter(
+        ImageFilter.UnsharpMask(
+            radius=radius, percent=int(amount * 100), threshold=threshold
+        )
+    )
+
+    return sharpened
+
+
 def generate_standard_qr(
     prompt: str,
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
@@ -1320,6 +1444,14 @@ def generate_artistic_qr(
     enable_upscale: bool = False,
     enable_animation: bool = True,
     enable_cascade_filter: bool = False,
+    cascade_blur_kernel: int = 15,
+    cascade_threshold_ratio: float = 0.33,
+    enable_detail_sharpening: bool = False,
+    sharpening_radius: float = 2.0,
+    sharpening_amount: float = 1.5,
+    sharpening_threshold: int = 0,
+    customize_tile_preprocessing: bool = False,
+    tile_pyrup_iters: int = 3,
     enable_freeu: bool = True,
     freeu_b1: float = 1.4,
     freeu_b2: float = 1.3,
@@ -1418,6 +1550,14 @@ def generate_artistic_qr(
         variation_steps=variation_steps,
         enable_animation=enable_animation,
         enable_cascade_filter=enable_cascade_filter,
+        cascade_blur_kernel=cascade_blur_kernel,
+        cascade_threshold_ratio=cascade_threshold_ratio,
+        enable_detail_sharpening=enable_detail_sharpening,
+        sharpening_radius=sharpening_radius,
+        sharpening_amount=sharpening_amount,
+        sharpening_threshold=sharpening_threshold,
+        customize_tile_preprocessing=customize_tile_preprocessing,
+        tile_pyrup_iters=tile_pyrup_iters,
         gr_progress=progress,
     )
 
@@ -2363,6 +2503,14 @@ def _pipeline_artistic(
     variation_steps: int = 5,
     enable_animation: bool = True,
     enable_cascade_filter: bool = False,
+    cascade_blur_kernel: int = 15,
+    cascade_threshold_ratio: float = 0.33,
+    enable_detail_sharpening: bool = False,
+    sharpening_radius: float = 2.0,
+    sharpening_amount: float = 1.5,
+    sharpening_threshold: int = 0,
+    customize_tile_preprocessing: bool = False,
+    tile_pyrup_iters: int = 3,
     gr_progress=None,
 ):
     # Initialize animation handler if enabled
@@ -2473,7 +2621,9 @@ def _pipeline_artistic(
     # Apply Stable Cascade filter if enabled
     if enable_cascade_filter:
         qr_for_brightness = apply_stable_cascade_qr_filter(
-            qr_with_border_noise, blur_kernel=15, threshold_ratio=0.33
+            qr_with_border_noise,
+            blur_kernel=cascade_blur_kernel,
+            threshold_ratio=cascade_threshold_ratio,
         )
     else:
         qr_for_brightness = qr_with_border_noise
@@ -2491,8 +2641,11 @@ def _pipeline_artistic(
     )
 
     # Tile preprocessor (using filtered or raw QR with border cubics)
+    # Use custom pyrUp_iters if enabled, otherwise default to 3
+    actual_pyrup_iters = tile_pyrup_iters if customize_tile_preprocessing else 3
+
     tile_processed = tilepreprocessor.execute(
-        pyrUp_iters=3,
+        pyrUp_iters=actual_pyrup_iters,
         resolution=image_size,
         image=qr_for_brightness,
     )
@@ -2601,6 +2754,17 @@ def _pipeline_artistic(
     first_pass_np = (first_pass_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
     first_pass_np = first_pass_np[0]
     first_pass_pil = Image.fromarray(first_pass_np)
+
+    # Apply detail sharpening if enabled (experimental feature)
+    # This preserves QR code edge sharpness for the second pass
+    if enable_detail_sharpening:
+        first_pass_pil = apply_detail_sharpening(
+            first_pass_pil,
+            radius=sharpening_radius,
+            amount=sharpening_amount,
+            threshold=sharpening_threshold,
+        )
+
     msg = f"First enhancement pass complete (step {current_step}/{total_steps})... final refinement pass"
     log_progress(msg, gr_progress, 0.5)
     yield (first_pass_pil, msg)
@@ -3199,17 +3363,167 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             info="Shows intermediate images every 5 steps during generation. Disable for faster generation.",
                         )
 
-                        # Stable Cascade QR Filter
-                        gr.Markdown("### Stable Cascade QR Filter")
-                        gr.Markdown(
-                            "Advanced preprocessing filter that improves brightness perception using HSV color space, "
-                            "Gaussian blur, and adaptive thresholding. Based on Stable Cascade implementation."
-                        )
-                        enable_cascade_filter_artistic = gr.Checkbox(
-                            label="Enable Stable Cascade QR Filter",
-                            value=False,
-                            info="Applies HSV-based brightness filter with Gaussian blur (kernel=15) and adaptive thresholding (33%). May improve scannability and aesthetic quality.",
-                        )
+                        # Experimental Settings Section
+                        with gr.Accordion(
+                            "⚙️ Experimental Settings (Advanced Users Only)", open=False
+                        ):
+                            gr.Markdown("""
+                            ⚠️ **Warning:** These features are experimental and may affect generation quality, 
+                            scannability, or processing time. Only enable if you understand their effects.
+                            
+                            These settings allow fine-tuning of the artistic pipeline for advanced users who want 
+                            more control over detail preservation, QR preprocessing, and enhancement strategies.
+                            
+                            **Recommendation:** Start with defaults, then enable one feature at a time to understand 
+                            its impact on your specific use case.
+                            """)
+
+                            # Section 1: Stable Cascade QR Filter
+                            gr.Markdown("### 🔹 Stable Cascade QR Filter")
+                            gr.Markdown(
+                                "Advanced preprocessing filter using HSV color space, Gaussian blur, and "
+                                "adaptive thresholding. Based on Stable Cascade implementation."
+                            )
+
+                            enable_cascade_filter_artistic = gr.Checkbox(
+                                label="Enable Stable Cascade QR Filter",
+                                value=False,
+                                info="Apply HSV-based brightness filter to QR code before ControlNet",
+                            )
+
+                            # Advanced Cascade parameters (nested accordion, visible only when filter enabled)
+                            cascade_advanced_accordion = gr.Accordion(
+                                "Advanced Cascade Parameters", open=False, visible=False
+                            )
+
+                            with cascade_advanced_accordion:
+                                gr.Markdown(
+                                    "Fine-tune filter behavior. Higher blur = smoother, higher threshold = sharper cutoff."
+                                )
+
+                                cascade_blur_kernel_artistic = gr.Slider(
+                                    minimum=5,
+                                    maximum=35,
+                                    step=2,
+                                    value=15,
+                                    label="Blur Kernel Size",
+                                    info="Gaussian blur kernel size (must be odd). Default: 15",
+                                )
+
+                                cascade_threshold_ratio_artistic = gr.Slider(
+                                    minimum=0.1,
+                                    maximum=0.5,
+                                    step=0.05,
+                                    value=0.33,
+                                    label="Threshold Ratio",
+                                    info="Adaptive threshold ratio. Default: 0.33",
+                                )
+
+                            # Show/hide advanced parameters when filter is toggled
+                            enable_cascade_filter_artistic.change(
+                                fn=lambda x: gr.update(visible=x),
+                                inputs=[enable_cascade_filter_artistic],
+                                outputs=[cascade_advanced_accordion],
+                            )
+
+                            # Section 2: Detail Sharpening
+                            gr.Markdown("### 🔹 Detail Sharpening")
+                            gr.Markdown(
+                                "Apply unsharp mask between first and second pass to preserve QR code details. "
+                                "Allows lower first-pass ControlNet strength (e.g., 0.35-0.40) while maintaining scannability."
+                            )
+
+                            enable_detail_sharpening_artistic = gr.Checkbox(
+                                label="Enable Detail Sharpening",
+                                value=False,
+                                info="Sharpen first-pass output before second pass to preserve QR edges",
+                            )
+
+                            # Sharpening parameters (nested accordion, visible only when enabled)
+                            sharpening_params_accordion = gr.Accordion(
+                                "Sharpening Parameters", open=False, visible=False
+                            )
+
+                            with sharpening_params_accordion:
+                                gr.Markdown(
+                                    "Adjust sharpening behavior. Start with defaults, increase amount for stronger effect."
+                                )
+
+                                sharpening_radius_artistic = gr.Slider(
+                                    minimum=1.0,
+                                    maximum=5.0,
+                                    step=0.5,
+                                    value=2.0,
+                                    label="Sharpening Radius",
+                                    info="Sharpening width in pixels. Higher = wider effect. Default: 2.0",
+                                )
+
+                                sharpening_amount_artistic = gr.Slider(
+                                    minimum=0.5,
+                                    maximum=3.0,
+                                    step=0.1,
+                                    value=1.5,
+                                    label="Sharpening Amount",
+                                    info="Sharpening strength. Higher = stronger. Default: 1.5",
+                                )
+
+                                sharpening_threshold_artistic = gr.Slider(
+                                    minimum=0,
+                                    maximum=10,
+                                    step=1,
+                                    value=0,
+                                    label="Sharpening Threshold",
+                                    info="Minimum brightness change. 0 = all pixels, higher = edges only. Default: 0",
+                                )
+
+                            # Show/hide parameters when sharpening is toggled
+                            enable_detail_sharpening_artistic.change(
+                                fn=lambda x: gr.update(visible=x),
+                                inputs=[enable_detail_sharpening_artistic],
+                                outputs=[sharpening_params_accordion],
+                            )
+
+                            # Section 3: Tile Preprocessor Configuration
+                            gr.Markdown("### 🔹 Tile Preprocessor Configuration")
+                            gr.Markdown(
+                                "Adjust tile preprocessor detail level. Lower values preserve more details but may "
+                                "reduce composition coherence. Higher values create smoother, more coherent results but lose fine details."
+                            )
+
+                            customize_tile_preprocessing_artistic = gr.Checkbox(
+                                label="Customize Tile Preprocessing",
+                                value=False,
+                                info="Override default pyrUp iterations (default: 3)",
+                            )
+
+                            # Tile parameters (nested accordion, visible only when enabled)
+                            tile_params_accordion = gr.Accordion(
+                                "Tile Preprocessing Parameters",
+                                open=False,
+                                visible=False,
+                            )
+
+                            with tile_params_accordion:
+                                gr.Markdown(
+                                    "pyrUp iterations control detail vs smoothness trade-off. "
+                                    "Default (3) is balanced. Lower = sharper/more details, Higher = smoother/less details."
+                                )
+
+                                tile_pyrup_iters_artistic = gr.Slider(
+                                    minimum=1,
+                                    maximum=4,
+                                    step=1,
+                                    value=3,
+                                    label="Tile Detail Level (pyrUp iterations)",
+                                    info="1=sharpest, 2=sharp, 3=balanced (default), 4=smoothest",
+                                )
+
+                            # Show/hide parameters when customization is toggled
+                            customize_tile_preprocessing_artistic.change(
+                                fn=lambda x: gr.update(visible=x),
+                                inputs=[customize_tile_preprocessing_artistic],
+                                outputs=[tile_params_accordion],
+                            )
 
                         # Color Quantization Section
                         gr.Markdown("### Color Quantization (Optional)")
@@ -3464,6 +3778,31 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             show_copy_button=True,
                         )
 
+                    # Export buttons — generated on demand at click time (cache-sweep safe)
+                    with gr.Row():
+                        png_download_artistic = gr.DownloadButton(
+                            "⬇ PNG",
+                            variant="primary",
+                            size="sm",
+                            value=_download_png,
+                            inputs=[
+                                artistic_output_image,
+                                artistic_text_input,
+                                artistic_seed,
+                            ],
+                        )
+                        svg_download_artistic = gr.DownloadButton(
+                            "⬇ SVG",
+                            variant="secondary",
+                            size="sm",
+                            value=_download_svg,
+                            inputs=[
+                                artistic_output_image,
+                                artistic_text_input,
+                                artistic_seed,
+                            ],
+                        )
+
                     # Button to show examples again (initially hidden)
                     show_examples_btn = gr.Button(
                         "🎨 Try Another Example",
@@ -3489,6 +3828,14 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_enable_upscale,
                     artistic_enable_animation,
                     enable_cascade_filter_artistic,
+                    cascade_blur_kernel_artistic,
+                    cascade_threshold_ratio_artistic,
+                    enable_detail_sharpening_artistic,
+                    sharpening_radius_artistic,
+                    sharpening_amount_artistic,
+                    sharpening_threshold_artistic,
+                    customize_tile_preprocessing_artistic,
+                    tile_pyrup_iters_artistic,
                     enable_freeu_artistic,
                     freeu_b1,
                     freeu_b2,
@@ -4072,6 +4419,23 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             interactive=True,
                             lines=5,
                             show_copy_button=True,
+                        )
+
+                    # Export buttons — generated on demand at click time (cache-sweep safe)
+                    with gr.Row():
+                        png_download_standard = gr.DownloadButton(
+                            "⬇ PNG",
+                            variant="primary",
+                            size="sm",
+                            value=_download_png,
+                            inputs=[output_image, text_input, seed],
+                        )
+                        svg_download_standard = gr.DownloadButton(
+                            "⬇ SVG",
+                            variant="secondary",
+                            size="sm",
+                            value=_download_svg,
+                            inputs=[output_image, text_input, seed],
                         )
 
             # When clicking the button, it will trigger the main function
