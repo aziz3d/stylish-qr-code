@@ -1419,16 +1419,17 @@ def generate_standard_qr(
     for image, status in generator:
         final_image = image
         final_status = status
-        # Show progressive updates but don't show accordion yet
-        yield (image, status, gr.update(), gr.update())
+        # Show progressive updates but don't show accordion or export buttons yet
+        yield (image, status, gr.update(), gr.update(), gr.update(visible=False))
 
-    # After all steps complete, show the accordion with JSON
+    # After all steps complete, show the accordion with JSON and export buttons
     if final_image is not None:
         yield (
             final_image,
             final_status,
             gr.update(value=settings_json),  # Update textbox content
             gr.update(visible=True),  # Make accordion visible only at the end
+            gr.update(visible=True),  # Show export buttons on success
         )
 
 
@@ -1581,6 +1582,7 @@ def generate_artistic_qr(
                 gr.update(),  # Accordion (no change yet)
                 gr.update(visible=False),  # Hide gallery
                 gr.update(visible=False),  # Hide show examples button during generation
+                gr.update(visible=False),  # Keep export row hidden during generation
             )
             first_yield = False
         else:
@@ -1591,6 +1593,7 @@ def generate_artistic_qr(
                 gr.update(),  # Accordion (no change yet)
                 gr.update(visible=False),  # Keep gallery hidden
                 gr.update(visible=False),  # Keep button hidden during generation
+                gr.update(visible=False),  # Keep export row hidden during generation
             )
 
     # After all steps complete, show the accordion with JSON and the "Try Another Example" button
@@ -1602,6 +1605,7 @@ def generate_artistic_qr(
             gr.update(visible=True),  # Make accordion visible only at the end
             gr.update(visible=False),  # Keep gallery hidden
             gr.update(visible=True),  # Show "Try Another Example" button
+            gr.update(visible=True),  # Show export buttons on success
         )
 
 
@@ -3781,8 +3785,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             show_copy_button=True,
                         )
 
-                    # Export buttons — generated on demand at click time (cache-sweep safe)
-                    with gr.Row():
+                    # Export buttons — hidden until generation succeeds
+                    with gr.Row(visible=False) as export_row_artistic:
                         png_download_artistic = gr.DownloadButton(
                             "⬇ PNG",
                             variant="primary",
@@ -3866,6 +3870,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     settings_accordion_artistic,
                     example_gallery,  # Control gallery visibility
                     show_examples_btn,  # Control button visibility
+                    export_row_artistic,  # Control export buttons visibility
                 ],
             )
 
@@ -3941,6 +3946,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         visible=True, selected_index=new_idx
                     ),  # Show gallery with random selection
                     gr.update(visible=False),  # Hide this button
+                    gr.update(visible=False),  # Hide export buttons
                     # Load the example settings
                     example["prompt"],
                     example["text_input"],
@@ -3965,6 +3971,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     settings_accordion_artistic,
                     example_gallery,
                     show_examples_btn,
+                    export_row_artistic,  # Hide export buttons
                     # Settings outputs
                     artistic_prompt_input,
                     artistic_text_input,
@@ -4001,6 +4008,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     "Settings loaded! Click 'Generate Artistic QR' to create your QR code",  # Show in Status/Errors
                     gr.update(visible=False),  # Hide settings accordion
                     evt.index,  # Store the selected example index
+                    gr.update(visible=False),  # Hide export buttons
                 )
 
             # Attach the event handler
@@ -4023,6 +4031,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_error_message,  # Show status message
                     settings_accordion_artistic,  # Reset visibility
                     current_example_index,  # Store the selected example index
+                    export_row_artistic,  # Hide export buttons
                 ],
             )
 
@@ -4424,8 +4433,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             show_copy_button=True,
                         )
 
-                    # Export buttons — generated on demand at click time (cache-sweep safe)
-                    with gr.Row():
+                    # Export buttons — hidden until generation succeeds
+                    with gr.Row(visible=False) as export_row_standard:
                         png_download_standard = gr.DownloadButton(
                             "⬇ PNG",
                             variant="primary",
@@ -4475,6 +4484,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     error_message,
                     settings_output_standard,
                     settings_accordion_standard,
+                    export_row_standard,  # Control export buttons visibility
                 ],
                 show_progress="full",
             )
