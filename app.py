@@ -26,7 +26,12 @@ import kornia.color  # For RGB→HSV conversion in Stable Cascade filter
 import base64
 import io
 import re
-import tempfile
+
+from gradio.processing_utils import (
+    get_upload_folder,
+    save_bytes_to_cache,
+    save_pil_to_cache,
+)
 
 
 def _make_qr_stem(text_input: str, seed: int) -> str:
@@ -36,24 +41,25 @@ def _make_qr_stem(text_input: str, seed: int) -> str:
 
 
 def _write_png(img: Image.Image, stem: str) -> str:
-    """Write PNG to a named temp file outside Gradio's cache. Returns path.
+    """Save PNG into Gradio's cache dir. Returns path.
 
-    Uses /tmp (OS-managed) rather than Gradio's /tmp/gradio/ cache so the
-    file is not subject to the delete_cache=(3600, 3600) sweep on the Space.
+    Written into /tmp/gradio/ so delete_cache=(3600, 3600) sweeps it after
+    1 hour — consistent with the generated image privacy policy in the README.
     """
-    tmp = tempfile.NamedTemporaryFile(suffix=".png", prefix=f"{stem}-", delete=False)
-    img.convert("RGB").save(tmp.name, "PNG")
-    tmp.close()
-    return tmp.name
+    return save_pil_to_cache(
+        img.convert("RGB"), get_upload_folder(), name=stem, format="png"
+    )
 
 
 def _write_svg(img: Image.Image, stem: str) -> str:
-    """Write a PNG-embedded SVG to a named temp file. Returns path.
+    """Save a PNG-embedded SVG into Gradio's cache dir. Returns path.
 
     The SVG wraps the raster image as a base64-encoded PNG inside a valid SVG
     container. Confirmed scannable and opens correctly in Figma, Illustrator,
-    Safari, and Chrome. Written outside Gradio's cache for the same reason as
-    _write_png — not subject to the 1-hour cache sweep.
+    Safari, and Chrome.
+
+    Written into /tmp/gradio/ so delete_cache=(3600, 3600) sweeps it after
+    1 hour — consistent with the generated image privacy policy in the README.
     """
     buf = io.BytesIO()
     img.convert("RGB").save(buf, "PNG")
@@ -69,10 +75,7 @@ def _write_svg(img: Image.Image, stem: str) -> str:
         f'x="0" y="0" width="{w}" height="{h}" '
         f'preserveAspectRatio="xMidYMid meet"/></svg>'
     )
-    tmp = tempfile.NamedTemporaryFile(suffix=".svg", prefix=f"{stem}-", delete=False)
-    tmp.write(svg.encode("utf-8"))
-    tmp.close()
-    return tmp.name
+    return save_bytes_to_cache(svg.encode("utf-8"), f"{stem}.svg", get_upload_folder())
 
 
 def _download_png(image, text_input, seed):
