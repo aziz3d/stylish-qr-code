@@ -1648,7 +1648,7 @@ def generate_standard_qr(
     variation_steps: int = 5,
     analytics_opt_in: bool = False,
     source: str = "mcp",
-    return_generation_id: bool = False,
+    return_generation_id: bool = True,
     progress=gr.Progress(),
     request: Union[gr.Request, None] = None,
 ):
@@ -1836,7 +1836,7 @@ def generate_artistic_qr(
     variation_steps: int = 5,
     analytics_opt_in: bool = False,
     source: str = "mcp",
-    return_generation_id: bool = False,
+    return_generation_id: bool = True,
     progress=gr.Progress(),
     request: Union[gr.Request, None] = None,
 ):
