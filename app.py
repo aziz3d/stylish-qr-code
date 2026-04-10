@@ -88,6 +88,16 @@ def _request_headers(request: Any) -> Mapping[str, str]:
     return {}
 
 
+def _detect_source(request: Any) -> str:
+    if request is None:
+        return "unknown"
+    url = getattr(request, "url", None)
+    path = str(getattr(url, "path", ""))
+    if "/gradio_api/mcp" in path:
+        return "mcp"
+    return "ui"
+
+
 def _build_anon_id(request: Any, source: str, fallback: str = "anonymous") -> str:
     request_session = getattr(request, "session_hash", None)
     headers = _request_headers(request)
@@ -336,7 +346,6 @@ def _download_png(
     text_input,
     seed,
     analytics_opt_in: bool = False,
-    source: str = "mcp",
     pipeline: str = "unknown",
     generation_id: str = "",
     request: Union[gr.Request, None] = None,
@@ -345,6 +354,7 @@ def _download_png(
     if image is None:
         return None
     img = image if isinstance(image, Image.Image) else Image.fromarray(image)
+    source = _detect_source(request)
     if ANALYTICS_ENABLED:
         _record_download_event(
             _build_download_payload(
@@ -367,7 +377,6 @@ def _download_svg(
     text_input,
     seed,
     analytics_opt_in: bool = False,
-    source: str = "mcp",
     pipeline: str = "unknown",
     generation_id: str = "",
     request: Union[gr.Request, None] = None,
@@ -376,6 +385,7 @@ def _download_svg(
     if image is None:
         return None
     img = image if isinstance(image, Image.Image) else Image.fromarray(image)
+    source = _detect_source(request)
     if ANALYTICS_ENABLED:
         _record_download_event(
             _build_download_payload(
@@ -1647,7 +1657,6 @@ def generate_standard_qr(
     gradient_strength: float = 0.3,
     variation_steps: int = 5,
     analytics_opt_in: bool = False,
-    source: str = "mcp",
     progress=gr.Progress(),
     request: Union[gr.Request, None] = None,
 ):
@@ -1658,6 +1667,7 @@ def generate_standard_qr(
     """
     generation_id = str(uuid.uuid4())
     analytics_opt_in = _normalize_bool(analytics_opt_in)
+    source = _detect_source(request)
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
@@ -1833,7 +1843,6 @@ def generate_artistic_qr(
     gradient_strength: float = 0.3,
     variation_steps: int = 5,
     analytics_opt_in: bool = False,
-    source: str = "mcp",
     progress=gr.Progress(),
     request: Union[gr.Request, None] = None,
 ):
@@ -1844,6 +1853,7 @@ def generate_artistic_qr(
     """
     generation_id = str(uuid.uuid4())
     analytics_opt_in = _normalize_bool(analytics_opt_in)
+    source = _detect_source(request)
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
@@ -3558,7 +3568,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
         label="Share anonymous usage data to improve QR quality",
         value=ANALYTICS_DEFAULT_OPT_IN,
     )
-    analytics_source_ui = gr.State(value="ui")
 
     # Add tabs for different generation methods
     with gr.Tabs():
@@ -4218,7 +4227,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_text_input,
                                 artistic_seed,
                                 analytics_opt_in_global,
-                                analytics_source_ui,
                                 artistic_pipeline_state,
                             ],
                         )
@@ -4232,7 +4240,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_text_input,
                                 artistic_seed,
                                 analytics_opt_in_global,
-                                analytics_source_ui,
                                 artistic_pipeline_state,
                             ],
                         )
@@ -4290,7 +4297,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_gradient_strength,
                     artistic_variation_steps,
                     analytics_opt_in_global,
-                    analytics_source_ui,
                 ],
                 outputs=[
                     artistic_output_image,
@@ -4875,7 +4881,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 text_input,
                                 seed,
                                 analytics_opt_in_global,
-                                analytics_source_ui,
                                 standard_pipeline_state,
                             ],
                         )
@@ -4889,7 +4894,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 text_input,
                                 seed,
                                 analytics_opt_in_global,
-                                analytics_source_ui,
                                 standard_pipeline_state,
                             ],
                         )
@@ -4923,7 +4927,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     gradient_strength,
                     variation_steps,
                     analytics_opt_in_global,
-                    analytics_source_ui,
                 ],
                 outputs=[
                     output_image,
