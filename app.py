@@ -4195,7 +4195,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
 
                     # State to track currently selected example index
                     current_example_index = gr.State(value=None)
-                    artistic_pipeline_state = gr.State(value="artistic")
 
                     # The output image for artistic QR (initially hidden)
                     artistic_output_image = gr.Image(
@@ -4231,7 +4230,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_text_input,
                                 artistic_seed,
                                 analytics_opt_in_global,
-                                artistic_pipeline_state,
                             ],
                         )
                         svg_download_artistic = gr.DownloadButton(
@@ -4244,7 +4242,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_text_input,
                                 artistic_seed,
                                 analytics_opt_in_global,
-                                artistic_pipeline_state,
                             ],
                         )
 
@@ -4856,7 +4853,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 with gr.Column():
                     # The output image
                     output_image = gr.Image(label="Generated Standard QR Code")
-                    standard_pipeline_state = gr.State(value="standard")
                     error_message = gr.Textbox(
                         label="Status / Errors",
                         interactive=False,
@@ -4885,7 +4881,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 text_input,
                                 seed,
                                 analytics_opt_in_global,
-                                standard_pipeline_state,
                             ],
                         )
                         svg_download_standard = gr.DownloadButton(
@@ -4898,7 +4893,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 text_input,
                                 seed,
                                 analytics_opt_in_global,
-                                standard_pipeline_state,
                             ],
                         )
 
