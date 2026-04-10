@@ -1725,21 +1725,30 @@ def generate_standard_qr(
     final_image = None
     final_status = None
 
-    for image, status in generator:
-        final_image = image
-        final_status = status
-        # Show progressive updates but don't show accordion or export buttons yet
-        if return_generation_id:
-            yield (
-                image,
-                status,
-                gr.update(),
-                gr.update(),
-                gr.update(visible=False),
-                gr.update(),
-            )
-        else:
-            yield (image, status, gr.update(), gr.update(), gr.update(visible=False))
+    try:
+        for image, status in generator:
+            final_image = image
+            final_status = status
+            # Show progressive updates but don't show accordion or export buttons yet
+            if return_generation_id:
+                yield (
+                    image,
+                    status,
+                    gr.update(),
+                    gr.update(),
+                    gr.update(visible=False),
+                    gr.update(),
+                )
+            else:
+                yield (
+                    image,
+                    status,
+                    gr.update(),
+                    gr.update(),
+                    gr.update(visible=False),
+                )
+    except Exception as exc:
+        final_status = str(exc)
 
     # After all steps complete, show the accordion with JSON and export buttons
     if final_image is not None:
@@ -1790,6 +1799,24 @@ def generate_standard_qr(
                 request=request,
             )
         )
+    if final_image is None and final_status:
+        if return_generation_id:
+            yield (
+                None,
+                final_status,
+                gr.update(),
+                gr.update(),
+                gr.update(visible=False),
+                generation_id,
+            )
+        else:
+            yield (
+                None,
+                final_status,
+                gr.update(),
+                gr.update(),
+                gr.update(visible=False),
+            )
 
 
 def generate_artistic_qr(
@@ -1938,62 +1965,67 @@ def generate_artistic_qr(
     final_status = None
     first_yield = True
 
-    for image, status in generator:
-        final_image = image
-        final_status = status
-        # Show progressive updates but don't show accordion yet
-        # On first yield, hide gallery and show output components
-        if first_yield:
-            if return_generation_id:
-                yield (
-                    gr.update(visible=True, value=image),  # Show output image
-                    status,
-                    gr.update(),  # Settings (no change yet)
-                    gr.update(),  # Accordion (no change yet)
-                    gr.update(visible=False),  # Hide gallery
-                    gr.update(
-                        visible=False
-                    ),  # Hide show examples button during generation
-                    gr.update(
-                        visible=False
-                    ),  # Keep export row hidden during generation
-                    gr.update(),
-                )
+    try:
+        for image, status in generator:
+            final_image = image
+            final_status = status
+            # Show progressive updates but don't show accordion yet
+            # On first yield, hide gallery and show output components
+            if first_yield:
+                if return_generation_id:
+                    yield (
+                        gr.update(visible=True, value=image),  # Show output image
+                        status,
+                        gr.update(),  # Settings (no change yet)
+                        gr.update(),  # Accordion (no change yet)
+                        gr.update(visible=False),  # Hide gallery
+                        gr.update(
+                            visible=False
+                        ),  # Hide show examples button during generation
+                        gr.update(
+                            visible=False
+                        ),  # Keep export row hidden during generation
+                        gr.update(),
+                    )
+                else:
+                    yield (
+                        gr.update(visible=True, value=image),
+                        status,
+                        gr.update(),
+                        gr.update(),
+                        gr.update(visible=False),
+                        gr.update(visible=False),
+                        gr.update(visible=False),
+                    )
+                first_yield = False
             else:
-                yield (
-                    gr.update(visible=True, value=image),
-                    status,
-                    gr.update(),
-                    gr.update(),
-                    gr.update(visible=False),
-                    gr.update(visible=False),
-                    gr.update(visible=False),
-                )
-            first_yield = False
-        else:
-            if return_generation_id:
-                yield (
-                    image,  # Update image
-                    status,
-                    gr.update(),  # Settings (no change yet)
-                    gr.update(),  # Accordion (no change yet)
-                    gr.update(visible=False),  # Keep gallery hidden
-                    gr.update(visible=False),  # Keep button hidden during generation
-                    gr.update(
-                        visible=False
-                    ),  # Keep export row hidden during generation
-                    gr.update(),
-                )
-            else:
-                yield (
-                    image,
-                    status,
-                    gr.update(),
-                    gr.update(),
-                    gr.update(visible=False),
-                    gr.update(visible=False),
-                    gr.update(visible=False),
-                )
+                if return_generation_id:
+                    yield (
+                        image,  # Update image
+                        status,
+                        gr.update(),  # Settings (no change yet)
+                        gr.update(),  # Accordion (no change yet)
+                        gr.update(visible=False),  # Keep gallery hidden
+                        gr.update(
+                            visible=False
+                        ),  # Keep button hidden during generation
+                        gr.update(
+                            visible=False
+                        ),  # Keep export row hidden during generation
+                        gr.update(),
+                    )
+                else:
+                    yield (
+                        image,
+                        status,
+                        gr.update(),
+                        gr.update(),
+                        gr.update(visible=False),
+                        gr.update(visible=False),
+                        gr.update(visible=False),
+                    )
+    except Exception as exc:
+        final_status = str(exc)
 
     # After all steps complete, show the accordion with JSON and the "Try Another Example" button
     if final_image is not None:
@@ -2048,6 +2080,28 @@ def generate_artistic_qr(
                 request=request,
             )
         )
+    if final_image is None and final_status:
+        if return_generation_id:
+            yield (
+                None,
+                final_status,
+                gr.update(),
+                gr.update(),
+                gr.update(visible=False),
+                gr.update(visible=True),
+                gr.update(visible=False),
+                generation_id,
+            )
+        else:
+            yield (
+                None,
+                final_status,
+                gr.update(),
+                gr.update(),
+                gr.update(visible=False),
+                gr.update(visible=True),
+                gr.update(visible=False),
+            )
 
 
 # Helper functions for shareable settings JSON
