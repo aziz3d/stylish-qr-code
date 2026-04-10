@@ -1800,6 +1800,8 @@ def generate_standard_qr(
             )
         )
     if final_image is None and final_status:
+        if source == "mcp":
+            raise RuntimeError(final_status)
         if return_generation_id:
             yield (
                 None,
@@ -2081,6 +2083,8 @@ def generate_artistic_qr(
             )
         )
     if final_image is None and final_status:
+        if source == "mcp":
+            raise RuntimeError(final_status)
         if return_generation_id:
             yield (
                 None,
