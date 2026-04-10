@@ -335,10 +335,10 @@ def _download_png(
     image,
     text_input,
     seed,
-    generation_id: str = "",
     analytics_opt_in: bool = False,
     source: str = "mcp",
     pipeline: str = "unknown",
+    generation_id: str = "",
     request: Union[gr.Request, None] = None,
 ):
     """Called by DownloadButton at click time — generates PNG on demand."""
@@ -366,10 +366,10 @@ def _download_svg(
     image,
     text_input,
     seed,
-    generation_id: str = "",
     analytics_opt_in: bool = False,
     source: str = "mcp",
     pipeline: str = "unknown",
+    generation_id: str = "",
     request: Union[gr.Request, None] = None,
 ):
     """Called by DownloadButton at click time — generates embedded SVG on demand."""
@@ -1648,7 +1648,6 @@ def generate_standard_qr(
     variation_steps: int = 5,
     analytics_opt_in: bool = False,
     source: str = "mcp",
-    return_generation_id: bool = True,
     progress=gr.Progress(),
     request: Union[gr.Request, None] = None,
 ):
@@ -1730,23 +1729,13 @@ def generate_standard_qr(
             final_image = image
             final_status = status
             # Show progressive updates but don't show accordion or export buttons yet
-            if return_generation_id:
-                yield (
-                    image,
-                    status,
-                    gr.update(),
-                    gr.update(),
-                    gr.update(visible=False),
-                    gr.update(),
-                )
-            else:
-                yield (
-                    image,
-                    status,
-                    gr.update(),
-                    gr.update(),
-                    gr.update(visible=False),
-                )
+            yield (
+                image,
+                status,
+                gr.update(),
+                gr.update(),
+                gr.update(visible=False),
+            )
     except Exception as exc:
         final_status = str(exc)
 
@@ -1767,23 +1756,13 @@ def generate_standard_qr(
                     request=request,
                 )
             )
-        if return_generation_id:
-            yield (
-                final_image,
-                final_status,
-                gr.update(value=settings_json),  # Update textbox content
-                gr.update(visible=True),  # Make accordion visible only at the end
-                gr.update(visible=True),  # Show export buttons on success
-                generation_id,
-            )
-        else:
-            yield (
-                final_image,
-                final_status,
-                gr.update(value=settings_json),
-                gr.update(visible=True),
-                gr.update(visible=True),
-            )
+        yield (
+            final_image,
+            final_status,
+            gr.update(value=settings_json),
+            gr.update(visible=True),
+            gr.update(visible=True),
+        )
     elif ANALYTICS_ENABLED:
         _record_generation_event(
             _build_generation_payload(
@@ -1802,23 +1781,13 @@ def generate_standard_qr(
     if final_image is None and final_status:
         if source == "mcp":
             raise RuntimeError(final_status)
-        if return_generation_id:
-            yield (
-                None,
-                final_status,
-                gr.update(),
-                gr.update(),
-                gr.update(visible=False),
-                generation_id,
-            )
-        else:
-            yield (
-                None,
-                final_status,
-                gr.update(),
-                gr.update(),
-                gr.update(visible=False),
-            )
+        yield (
+            None,
+            final_status,
+            gr.update(),
+            gr.update(),
+            gr.update(visible=False),
+        )
 
 
 def generate_artistic_qr(
@@ -1865,7 +1834,6 @@ def generate_artistic_qr(
     variation_steps: int = 5,
     analytics_opt_in: bool = False,
     source: str = "mcp",
-    return_generation_id: bool = True,
     progress=gr.Progress(),
     request: Union[gr.Request, None] = None,
 ):
@@ -1974,58 +1942,26 @@ def generate_artistic_qr(
             # Show progressive updates but don't show accordion yet
             # On first yield, hide gallery and show output components
             if first_yield:
-                if return_generation_id:
-                    yield (
-                        gr.update(visible=True, value=image),  # Show output image
-                        status,
-                        gr.update(),  # Settings (no change yet)
-                        gr.update(),  # Accordion (no change yet)
-                        gr.update(visible=False),  # Hide gallery
-                        gr.update(
-                            visible=False
-                        ),  # Hide show examples button during generation
-                        gr.update(
-                            visible=False
-                        ),  # Keep export row hidden during generation
-                        gr.update(),
-                    )
-                else:
-                    yield (
-                        gr.update(visible=True, value=image),
-                        status,
-                        gr.update(),
-                        gr.update(),
-                        gr.update(visible=False),
-                        gr.update(visible=False),
-                        gr.update(visible=False),
-                    )
+                yield (
+                    gr.update(visible=True, value=image),
+                    status,
+                    gr.update(),
+                    gr.update(),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                )
                 first_yield = False
             else:
-                if return_generation_id:
-                    yield (
-                        image,  # Update image
-                        status,
-                        gr.update(),  # Settings (no change yet)
-                        gr.update(),  # Accordion (no change yet)
-                        gr.update(visible=False),  # Keep gallery hidden
-                        gr.update(
-                            visible=False
-                        ),  # Keep button hidden during generation
-                        gr.update(
-                            visible=False
-                        ),  # Keep export row hidden during generation
-                        gr.update(),
-                    )
-                else:
-                    yield (
-                        image,
-                        status,
-                        gr.update(),
-                        gr.update(),
-                        gr.update(visible=False),
-                        gr.update(visible=False),
-                        gr.update(visible=False),
-                    )
+                yield (
+                    image,
+                    status,
+                    gr.update(),
+                    gr.update(),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                    gr.update(visible=False),
+                )
     except Exception as exc:
         final_status = str(exc)
 
@@ -2046,27 +1982,15 @@ def generate_artistic_qr(
                     request=request,
                 )
             )
-        if return_generation_id:
-            yield (
-                final_image,
-                final_status,
-                gr.update(value=settings_json),  # Update textbox content
-                gr.update(visible=True),  # Make accordion visible only at the end
-                gr.update(visible=False),  # Keep gallery hidden
-                gr.update(visible=True),  # Show "Try Another Example" button
-                gr.update(visible=True),  # Show export buttons on success
-                generation_id,
-            )
-        else:
-            yield (
-                final_image,
-                final_status,
-                gr.update(value=settings_json),
-                gr.update(visible=True),
-                gr.update(visible=False),
-                gr.update(visible=True),
-                gr.update(visible=True),
-            )
+        yield (
+            final_image,
+            final_status,
+            gr.update(value=settings_json),
+            gr.update(visible=True),
+            gr.update(visible=False),
+            gr.update(visible=True),
+            gr.update(visible=True),
+        )
     elif ANALYTICS_ENABLED:
         _record_generation_event(
             _build_generation_payload(
@@ -2085,27 +2009,15 @@ def generate_artistic_qr(
     if final_image is None and final_status:
         if source == "mcp":
             raise RuntimeError(final_status)
-        if return_generation_id:
-            yield (
-                None,
-                final_status,
-                gr.update(),
-                gr.update(),
-                gr.update(visible=False),
-                gr.update(visible=True),
-                gr.update(visible=False),
-                generation_id,
-            )
-        else:
-            yield (
-                None,
-                final_status,
-                gr.update(),
-                gr.update(),
-                gr.update(visible=False),
-                gr.update(visible=True),
-                gr.update(visible=False),
-            )
+        yield (
+            None,
+            final_status,
+            gr.update(),
+            gr.update(),
+            gr.update(visible=False),
+            gr.update(visible=True),
+            gr.update(visible=False),
+        )
 
 
 # Helper functions for shareable settings JSON
@@ -3647,7 +3559,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
         value=ANALYTICS_DEFAULT_OPT_IN,
     )
     analytics_source_ui = gr.State(value="ui")
-    analytics_return_generation_id_ui = gr.State(value=True)
 
     # Add tabs for different generation methods
     with gr.Tabs():
@@ -4271,7 +4182,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
 
                     # State to track currently selected example index
                     current_example_index = gr.State(value=None)
-                    artistic_generation_id = gr.State(value="")
                     artistic_pipeline_state = gr.State(value="artistic")
 
                     # The output image for artistic QR (initially hidden)
@@ -4307,7 +4217,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_output_image,
                                 artistic_text_input,
                                 artistic_seed,
-                                artistic_generation_id,
                                 analytics_opt_in_global,
                                 analytics_source_ui,
                                 artistic_pipeline_state,
@@ -4322,7 +4231,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_output_image,
                                 artistic_text_input,
                                 artistic_seed,
-                                artistic_generation_id,
                                 analytics_opt_in_global,
                                 analytics_source_ui,
                                 artistic_pipeline_state,
@@ -4383,7 +4291,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_variation_steps,
                     analytics_opt_in_global,
                     analytics_source_ui,
-                    analytics_return_generation_id_ui,
                 ],
                 outputs=[
                     artistic_output_image,
@@ -4393,7 +4300,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     example_gallery,  # Control gallery visibility
                     show_examples_btn,  # Control button visibility
                     export_row_artistic,  # Control export buttons visibility
-                    artistic_generation_id,
                 ],
             )
 
@@ -4940,7 +4846,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 with gr.Column():
                     # The output image
                     output_image = gr.Image(label="Generated Standard QR Code")
-                    standard_generation_id = gr.State(value="")
                     standard_pipeline_state = gr.State(value="standard")
                     error_message = gr.Textbox(
                         label="Status / Errors",
@@ -4969,7 +4874,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 output_image,
                                 text_input,
                                 seed,
-                                standard_generation_id,
                                 analytics_opt_in_global,
                                 analytics_source_ui,
                                 standard_pipeline_state,
@@ -4984,7 +4888,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 output_image,
                                 text_input,
                                 seed,
-                                standard_generation_id,
                                 analytics_opt_in_global,
                                 analytics_source_ui,
                                 standard_pipeline_state,
@@ -5021,7 +4924,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     variation_steps,
                     analytics_opt_in_global,
                     analytics_source_ui,
-                    analytics_return_generation_id_ui,
                 ],
                 outputs=[
                     output_image,
@@ -5029,7 +4931,6 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     settings_output_standard,
                     settings_accordion_standard,
                     export_row_standard,  # Control export buttons visibility
-                    standard_generation_id,
                 ],
                 show_progress="full",
             )
