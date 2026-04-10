@@ -91,6 +91,10 @@ def _request_headers(request: Any) -> Mapping[str, str]:
 def _detect_source(request: Any) -> str:
     if request is None:
         return "unknown"
+    headers = _request_headers(request)
+    accept = str(headers.get("accept", "")).lower()
+    if "text/event-stream" in accept:
+        return "mcp"
     url = getattr(request, "url", None)
     path = str(getattr(url, "path", ""))
     if "/gradio_api/mcp" in path:
