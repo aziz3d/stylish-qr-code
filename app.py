@@ -3,6 +3,11 @@ import queue
 import sys
 import threading
 import time
+import hashlib
+import uuid
+from datetime import datetime, timezone
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 # Force unbuffered output for real-time logging
 sys.stdout.reconfigure(line_buffering=True)
@@ -32,6 +37,254 @@ from gradio.processing_utils import (
     save_bytes_to_cache,
     save_pil_to_cache,
 )
+
+
+ANALYTICS_ENABLED = os.getenv("ANALYTICS_ENABLED", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+ANALYTICS_DEFAULT_OPT_IN = os.getenv(
+    "ANALYTICS_DEFAULT_OPT_IN", "false"
+).strip().lower() in {"1", "true", "yes", "on"}
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_GENERATION_TABLE = os.getenv(
+    "SUPABASE_GENERATION_TABLE", "analytics_generation_events"
+)
+SUPABASE_DOWNLOAD_TABLE = os.getenv(
+    "SUPABASE_DOWNLOAD_TABLE", "analytics_download_events"
+)
+POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com").rstrip("/")
+POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "") or os.getenv(
+    "POSTHOG_SECRET_KEY", ""
+)
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _request_headers(request: Any) -> Mapping[str, str]:
+    headers = getattr(request, "headers", None)
+    if isinstance(headers, Mapping):
+        return headers
+    return {}
+
+
+def _build_anon_id(request: Any, source: str, fallback: str = "anonymous") -> str:
+    request_session = getattr(request, "session_hash", None)
+    headers = _request_headers(request)
+    raw = "|".join(
+        [
+            source or "unknown",
+            str(request_session or ""),
+            str(headers.get("x-forwarded-for", "")),
+            str(headers.get("user-agent", "")),
+            fallback,
+        ]
+    )
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
+
+
+def _classify_error_bucket(status: str) -> str:
+    lowered = (status or "").lower()
+    if not lowered:
+        return "unknown"
+    if any(
+        token in lowered for token in ("zero gpu", "quota", "rate limit", "capacity")
+    ):
+        return "infra_limited"
+    if any(
+        token in lowered
+        for token in ("invalid json", "failed to parse", "please use the correct tab")
+    ):
+        return "invalid_request"
+    return "model_failure"
+
+
+def _queue_background_work(fn, *args, **kwargs) -> None:
+    thread = threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True)
+    thread.start()
+
+
+def _post_json(
+    url: str, payload: Mapping[str, Any], headers: Mapping[str, str]
+) -> None:
+    req = urllib_request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", **dict(headers)},
+        method="POST",
+    )
+    try:
+        with urllib_request.urlopen(req, timeout=10):
+            pass
+    except urllib_error.URLError as exc:
+        print(f"[analytics] remote write failed: {exc}")
+
+
+def _write_supabase_row(table: str, row: Mapping[str, Any]) -> None:
+    if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY):
+        return
+    _post_json(
+        f"{SUPABASE_URL}/rest/v1/{table}",
+        row,
+        {
+            "apikey": SUPABASE_SERVICE_ROLE_KEY,
+            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "Prefer": "return=minimal",
+        },
+    )
+
+
+def _capture_posthog_event(event: str, properties: Mapping[str, Any]) -> None:
+    if not POSTHOG_API_KEY:
+        return
+    distinct_id = str(
+        properties.get("anonymous_id")
+        or properties.get("generation_id")
+        or uuid.uuid4()
+    )
+    _post_json(
+        f"{POSTHOG_HOST}/capture/",
+        {
+            "api_key": POSTHOG_API_KEY,
+            "event": event,
+            "distinct_id": distinct_id,
+            "properties": dict(properties),
+        },
+        {},
+    )
+
+
+def _emit_analytics_log(kind: str, payload: Mapping[str, Any]) -> None:
+    print(f"[analytics] {kind} {json.dumps(payload, ensure_ascii=False, default=str)}")
+
+
+def _record_generation_event(payload: Mapping[str, Any]) -> None:
+    _emit_analytics_log("generation", payload)
+    _queue_background_work(_write_supabase_row, SUPABASE_GENERATION_TABLE, payload)
+    _queue_background_work(
+        _capture_posthog_event,
+        "generate_finished",
+        {
+            "product": "ai_qr_generator",
+            "source": payload.get("source"),
+            "pipeline": payload.get("pipeline"),
+            "tool_name": payload.get("tool_name"),
+            "analytics_opt_in": payload.get("analytics_opt_in"),
+            "status": payload.get("status"),
+            "error_bucket": payload.get("error_bucket"),
+            "generation_id": payload.get("generation_id"),
+            "anonymous_id": payload.get("anonymous_id"),
+        },
+    )
+
+
+def _record_download_event(payload: Mapping[str, Any]) -> None:
+    _emit_analytics_log("download", payload)
+    _queue_background_work(_write_supabase_row, SUPABASE_DOWNLOAD_TABLE, payload)
+    _queue_background_work(
+        _capture_posthog_event,
+        "download_requested",
+        {
+            "product": "ai_qr_generator",
+            "source": payload.get("source"),
+            "pipeline": payload.get("pipeline"),
+            "tool_name": payload.get("tool_name"),
+            "analytics_opt_in": payload.get("analytics_opt_in"),
+            "generation_id": payload.get("generation_id"),
+            "anonymous_id": payload.get("anonymous_id"),
+            "format": payload.get("format"),
+        },
+    )
+
+
+def _build_generation_payload(
+    *,
+    generation_id: str,
+    source: str,
+    pipeline: str,
+    tool_name: str,
+    analytics_opt_in: bool,
+    prompt: str,
+    text_input: str,
+    settings: Mapping[str, Any],
+    status: str,
+    request: Any,
+) -> Mapping[str, Any]:
+    error_bucket = "none" if status == "success" else _classify_error_bucket(status)
+    payload = {
+        "generation_id": generation_id,
+        "timestamp": _utc_now_iso(),
+        "product": "ai_qr_generator",
+        "source": source,
+        "pipeline": pipeline,
+        "tool_name": tool_name,
+        "analytics_opt_in": analytics_opt_in,
+        "status": "success" if status == "success" else "error",
+        "error_bucket": error_bucket,
+        "anonymous_id": _build_anon_id(request, source, fallback=generation_id),
+    }
+    if analytics_opt_in:
+        payload = {
+            **payload,
+            "prompt_full": prompt,
+            "qr_payload_full": text_input,
+            "settings_full": dict(settings),
+        }
+    return payload
+
+
+def _build_download_payload(
+    *,
+    generation_id: str,
+    source: str,
+    pipeline: str,
+    tool_name: str,
+    analytics_opt_in: bool,
+    text_input: str,
+    seed: int,
+    fmt: str,
+    request: Any,
+) -> Mapping[str, Any]:
+    payload = {
+        "generation_id": generation_id or "",
+        "timestamp": _utc_now_iso(),
+        "product": "ai_qr_generator",
+        "source": source,
+        "pipeline": pipeline or "unknown",
+        "tool_name": tool_name,
+        "analytics_opt_in": analytics_opt_in,
+        "format": fmt,
+        "anonymous_id": _build_anon_id(
+            request, source, fallback=f"{text_input}:{seed}:{fmt}"
+        ),
+    }
+    if analytics_opt_in:
+        payload = {
+            **payload,
+            "qr_payload_full": text_input,
+            "seed": seed,
+        }
+    return payload
 
 
 def _make_qr_stem(text_input: str, seed: int) -> str:
@@ -78,19 +331,65 @@ def _write_svg(img: Image.Image, stem: str) -> str:
     return save_bytes_to_cache(svg.encode("utf-8"), f"{stem}.svg", get_upload_folder())
 
 
-def _download_png(image, text_input, seed):
+def _download_png(
+    image,
+    text_input,
+    seed,
+    generation_id: str = "",
+    analytics_opt_in: bool = False,
+    source: str = "mcp",
+    pipeline: str = "unknown",
+    request: Union[gr.Request, None] = None,
+):
     """Called by DownloadButton at click time — generates PNG on demand."""
     if image is None:
         return None
     img = image if isinstance(image, Image.Image) else Image.fromarray(image)
+    if ANALYTICS_ENABLED:
+        _record_download_event(
+            _build_download_payload(
+                generation_id=generation_id,
+                source=source,
+                pipeline=pipeline,
+                tool_name=f"download_png_{pipeline}",
+                analytics_opt_in=_normalize_bool(analytics_opt_in),
+                text_input=str(text_input),
+                seed=_safe_int(seed),
+                fmt="png",
+                request=request,
+            )
+        )
     return _write_png(img, _make_qr_stem(str(text_input), int(seed)))
 
 
-def _download_svg(image, text_input, seed):
+def _download_svg(
+    image,
+    text_input,
+    seed,
+    generation_id: str = "",
+    analytics_opt_in: bool = False,
+    source: str = "mcp",
+    pipeline: str = "unknown",
+    request: Union[gr.Request, None] = None,
+):
     """Called by DownloadButton at click time — generates embedded SVG on demand."""
     if image is None:
         return None
     img = image if isinstance(image, Image.Image) else Image.fromarray(image)
+    if ANALYTICS_ENABLED:
+        _record_download_event(
+            _build_download_payload(
+                generation_id=generation_id,
+                source=source,
+                pipeline=pipeline,
+                tool_name=f"download_svg_{pipeline}",
+                analytics_opt_in=_normalize_bool(analytics_opt_in),
+                text_input=str(text_input),
+                seed=_safe_int(seed),
+                fmt="svg",
+                request=request,
+            )
+        )
     return _write_svg(img, _make_qr_stem(str(text_input), int(seed)))
 
 
@@ -1347,9 +1646,18 @@ def generate_standard_qr(
     apply_gradient_filter: bool = False,
     gradient_strength: float = 0.3,
     variation_steps: int = 5,
+    analytics_opt_in: bool = False,
+    source: str = "mcp",
     progress=gr.Progress(),
+    request: Union[gr.Request, None] = None,
 ):
-    """Wrapper function for standard QR generation"""
+    """Wrapper function for standard QR generation.
+
+    Set analytics_opt_in=True to share prompt, QR payload, and settings for product improvement.
+    Generated images are never stored for analytics.
+    """
+    generation_id = str(uuid.uuid4())
+    analytics_opt_in = _normalize_bool(analytics_opt_in)
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
@@ -1420,16 +1728,54 @@ def generate_standard_qr(
         final_image = image
         final_status = status
         # Show progressive updates but don't show accordion or export buttons yet
-        yield (image, status, gr.update(), gr.update(), gr.update(visible=False))
+        yield (
+            image,
+            status,
+            gr.update(),
+            gr.update(),
+            gr.update(visible=False),
+            gr.update(),
+        )
 
     # After all steps complete, show the accordion with JSON and export buttons
     if final_image is not None:
+        if ANALYTICS_ENABLED:
+            _record_generation_event(
+                _build_generation_payload(
+                    generation_id=generation_id,
+                    source=source,
+                    pipeline="standard",
+                    tool_name="generate_standard_qr",
+                    analytics_opt_in=analytics_opt_in,
+                    prompt=prompt,
+                    text_input=text_input,
+                    settings=settings_dict,
+                    status="success",
+                    request=request,
+                )
+            )
         yield (
             final_image,
             final_status,
             gr.update(value=settings_json),  # Update textbox content
             gr.update(visible=True),  # Make accordion visible only at the end
             gr.update(visible=True),  # Show export buttons on success
+            generation_id,
+        )
+    elif ANALYTICS_ENABLED:
+        _record_generation_event(
+            _build_generation_payload(
+                generation_id=generation_id,
+                source=source,
+                pipeline="standard",
+                tool_name="generate_standard_qr",
+                analytics_opt_in=analytics_opt_in,
+                prompt=prompt,
+                text_input=text_input,
+                settings=settings_dict,
+                status=final_status or "Generation failed",
+                request=request,
+            )
         )
 
 
@@ -1475,9 +1821,18 @@ def generate_artistic_qr(
     apply_gradient_filter: bool = False,
     gradient_strength: float = 0.3,
     variation_steps: int = 5,
+    analytics_opt_in: bool = False,
+    source: str = "mcp",
     progress=gr.Progress(),
+    request: Union[gr.Request, None] = None,
 ):
-    """Wrapper function for artistic QR generation with FreeU and SAG parameters"""
+    """Wrapper function for artistic QR generation with FreeU and SAG parameters.
+
+    Set analytics_opt_in=True to share prompt, QR payload, and settings for product improvement.
+    Generated images are never stored for analytics.
+    """
+    generation_id = str(uuid.uuid4())
+    analytics_opt_in = _normalize_bool(analytics_opt_in)
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
@@ -1583,6 +1938,7 @@ def generate_artistic_qr(
                 gr.update(visible=False),  # Hide gallery
                 gr.update(visible=False),  # Hide show examples button during generation
                 gr.update(visible=False),  # Keep export row hidden during generation
+                gr.update(),
             )
             first_yield = False
         else:
@@ -1594,10 +1950,26 @@ def generate_artistic_qr(
                 gr.update(visible=False),  # Keep gallery hidden
                 gr.update(visible=False),  # Keep button hidden during generation
                 gr.update(visible=False),  # Keep export row hidden during generation
+                gr.update(),
             )
 
     # After all steps complete, show the accordion with JSON and the "Try Another Example" button
     if final_image is not None:
+        if ANALYTICS_ENABLED:
+            _record_generation_event(
+                _build_generation_payload(
+                    generation_id=generation_id,
+                    source=source,
+                    pipeline="artistic",
+                    tool_name="generate_artistic_qr",
+                    analytics_opt_in=analytics_opt_in,
+                    prompt=prompt,
+                    text_input=text_input,
+                    settings=settings_dict,
+                    status="success",
+                    request=request,
+                )
+            )
         yield (
             final_image,
             final_status,
@@ -1606,6 +1978,22 @@ def generate_artistic_qr(
             gr.update(visible=False),  # Keep gallery hidden
             gr.update(visible=True),  # Show "Try Another Example" button
             gr.update(visible=True),  # Show export buttons on success
+            generation_id,
+        )
+    elif ANALYTICS_ENABLED:
+        _record_generation_event(
+            _build_generation_payload(
+                generation_id=generation_id,
+                source=source,
+                pipeline="artistic",
+                tool_name="generate_artistic_qr",
+                analytics_opt_in=analytics_opt_in,
+                prompt=prompt,
+                text_input=text_input,
+                settings=settings_dict,
+                status=final_status or "Generation failed",
+                request=request,
+            )
         )
 
 
@@ -3140,6 +3528,15 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
         Choose a tab below to get started!
         """)
 
+    gr.Markdown(
+        "Note: You can opt in to help improve the product by sharing anonymous usage data. Generated images are not used for analytics and are automatically deleted after 1 hour."
+    )
+    analytics_opt_in_global = gr.Checkbox(
+        label="Share anonymous usage data to improve QR quality",
+        value=ANALYTICS_DEFAULT_OPT_IN,
+    )
+    analytics_source_ui = gr.State(value="ui")
+
     # Add tabs for different generation methods
     with gr.Tabs():
         # ARTISTIC QR TAB
@@ -3762,6 +4159,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
 
                     # State to track currently selected example index
                     current_example_index = gr.State(value=None)
+                    artistic_generation_id = gr.State(value="")
+                    artistic_pipeline_state = gr.State(value="artistic")
 
                     # The output image for artistic QR (initially hidden)
                     artistic_output_image = gr.Image(
@@ -3796,6 +4195,10 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_output_image,
                                 artistic_text_input,
                                 artistic_seed,
+                                artistic_generation_id,
+                                analytics_opt_in_global,
+                                analytics_source_ui,
+                                artistic_pipeline_state,
                             ],
                         )
                         svg_download_artistic = gr.DownloadButton(
@@ -3807,6 +4210,10 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_output_image,
                                 artistic_text_input,
                                 artistic_seed,
+                                artistic_generation_id,
+                                analytics_opt_in_global,
+                                analytics_source_ui,
+                                artistic_pipeline_state,
                             ],
                         )
 
@@ -3862,6 +4269,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_apply_gradient_filter,
                     artistic_gradient_strength,
                     artistic_variation_steps,
+                    analytics_opt_in_global,
+                    analytics_source_ui,
                 ],
                 outputs=[
                     artistic_output_image,
@@ -3871,6 +4280,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     example_gallery,  # Control gallery visibility
                     show_examples_btn,  # Control button visibility
                     export_row_artistic,  # Control export buttons visibility
+                    artistic_generation_id,
                 ],
             )
 
@@ -4417,6 +4827,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 with gr.Column():
                     # The output image
                     output_image = gr.Image(label="Generated Standard QR Code")
+                    standard_generation_id = gr.State(value="")
+                    standard_pipeline_state = gr.State(value="standard")
                     error_message = gr.Textbox(
                         label="Status / Errors",
                         interactive=False,
@@ -4440,14 +4852,30 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             variant="primary",
                             size="sm",
                             value=_download_png,
-                            inputs=[output_image, text_input, seed],
+                            inputs=[
+                                output_image,
+                                text_input,
+                                seed,
+                                standard_generation_id,
+                                analytics_opt_in_global,
+                                analytics_source_ui,
+                                standard_pipeline_state,
+                            ],
                         )
                         svg_download_standard = gr.DownloadButton(
                             "⬇ SVG",
                             variant="secondary",
                             size="sm",
                             value=_download_svg,
-                            inputs=[output_image, text_input, seed],
+                            inputs=[
+                                output_image,
+                                text_input,
+                                seed,
+                                standard_generation_id,
+                                analytics_opt_in_global,
+                                analytics_source_ui,
+                                standard_pipeline_state,
+                            ],
                         )
 
             # When clicking the button, it will trigger the main function
@@ -4478,6 +4906,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     apply_gradient_filter,
                     gradient_strength,
                     variation_steps,
+                    analytics_opt_in_global,
+                    analytics_source_ui,
                 ],
                 outputs=[
                     output_image,
@@ -4485,6 +4915,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     settings_output_standard,
                     settings_accordion_standard,
                     export_row_standard,  # Control export buttons visibility
+                    standard_generation_id,
                 ],
                 show_progress="full",
             )
