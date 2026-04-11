@@ -21,6 +21,7 @@ from typing import Any, Mapping, Sequence, Union
 
 import gradio as gr
 import numpy as np
+import qrcode
 import spaces
 import torch
 from huggingface_hub import hf_hub_download
@@ -687,6 +688,50 @@ def log_progress(message, gr_progress=None, progress_value=None):
         gr_progress(progress_value, desc=message)
 
 
+def _validate_qr_dimensions(
+    *,
+    qr_text: str,
+    input_type: str,
+    image_size: int,
+    border_size: int,
+    error_correction: str,
+    module_size: int,
+) -> None:
+    qr_protocol = "None" if input_type == "Plain Text" else "Https"
+    if qr_protocol == "Https":
+        full_text = f"https://{qr_text}"
+    elif qr_protocol == "Http":
+        full_text = f"http://{qr_text}"
+    else:
+        full_text = qr_text
+
+    error_level = {
+        "Low (7%)": qrcode.constants.ERROR_CORRECT_L,
+        "Medium (15%)": qrcode.constants.ERROR_CORRECT_M,
+        "Quartile (25%)": qrcode.constants.ERROR_CORRECT_Q,
+        "High (30%)": qrcode.constants.ERROR_CORRECT_H,
+        "Low": qrcode.constants.ERROR_CORRECT_L,
+        "Medium": qrcode.constants.ERROR_CORRECT_M,
+        "Quartile": qrcode.constants.ERROR_CORRECT_Q,
+        "High": qrcode.constants.ERROR_CORRECT_H,
+    }[error_correction]
+
+    qr = qrcode.QRCode(
+        error_correction=error_level,
+        box_size=module_size,
+        border=border_size,
+    )
+    qr.add_data(full_text)
+    qr.make(fit=True)
+
+    size = len(qr.get_matrix()) * module_size
+    if size > image_size:
+        raise RuntimeError(
+            f"Error generating QR code: QR dimensions of {size} exceed max size of {image_size}.\n"
+            "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level under Change Settings Manually."
+        )
+
+
 # Device-specific optimizations
 # Note: On ZeroGPU, torch.cuda.is_available() is False at module load time
 # CUDA only becomes available inside @spaces.GPU decorated functions
@@ -1126,6 +1171,15 @@ def generate_qr_code_unified(
 
     # Use custom seed or random
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
+
+    _validate_qr_dimensions(
+        qr_text=qr_text,
+        input_type=input_type,
+        image_size=image_size,
+        border_size=border_size,
+        error_correction=error_correction,
+        module_size=module_size,
+    )
 
     with torch.no_grad():
         if pipeline == "standard":
