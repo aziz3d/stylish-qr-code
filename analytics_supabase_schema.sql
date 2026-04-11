@@ -11,6 +11,8 @@ create table if not exists public.analytics_generation_events (
   analytics_opt_in boolean not null default false,
   status text not null check (status in ('success', 'error')),
   error_bucket text not null,
+  error_message_excerpt text,
+  error_message_hash text,
   anonymous_id text not null,
   prompt_full text,
   qr_payload_full text,
