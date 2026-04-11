@@ -144,6 +144,16 @@ def _truncate_error_message(message: str, limit: int = 300) -> str:
     return message[: limit - 3] + "..."
 
 
+def _format_exception_message(exc: Exception) -> str:
+    message = str(exc).strip()
+    exc_type = type(exc).__name__
+    if not message:
+        return exc_type
+    if message == exc_type or message == f"'{exc_type}'":
+        return f"{exc_type}: {repr(exc)}"
+    return f"{exc_type}: {message}"
+
+
 def _queue_background_work(fn, *args, **kwargs) -> None:
     thread = threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True)
     thread.start()
@@ -1827,7 +1837,7 @@ def generate_standard_qr(
                 gr.update(visible=False),
             )
     except Exception as exc:
-        final_status = str(exc)
+        final_status = _format_exception_message(exc)
 
     # After all steps complete, show the accordion with JSON and export buttons
     if final_image is not None:
@@ -2053,7 +2063,7 @@ def generate_artistic_qr(
                     gr.update(visible=False),
                 )
     except Exception as exc:
-        final_status = str(exc)
+        final_status = _format_exception_message(exc)
 
     # After all steps complete, show the accordion with JSON and the "Try Another Example" button
     if final_image is not None:
