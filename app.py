@@ -3,6 +3,7 @@ import queue
 import sys
 import threading
 import time
+import traceback
 import hashlib
 import uuid
 from datetime import datetime, timezone
@@ -1192,78 +1193,82 @@ def generate_qr_code_unified(
     )
 
     with torch.no_grad():
-        if pipeline == "standard":
-            for result in _pipeline_standard(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                qr_text=qr_text,
-                input_type=input_type,
-                image_size=image_size,
-                border_size=border_size,
-                error_correction=error_correction,
-                module_size=module_size,
-                module_drawer=module_drawer,
-                seed=actual_seed,
-                enable_upscale=enable_upscale,
-                controlnet_strength_first=controlnet_strength_standard_first,
-                controlnet_strength_final=controlnet_strength_standard_final,
-                enable_color_quantization=enable_color_quantization,
-                num_colors=num_colors,
-                color_1=color_1,
-                color_2=color_2,
-                color_3=color_3,
-                color_4=color_4,
-                apply_gradient_filter=apply_gradient_filter,
-                gradient_strength=gradient_strength,
-                variation_steps=variation_steps,
-                enable_animation=enable_animation,
-                gr_progress=gr_progress,
-            ):
-                yield result
-        else:  # artistic
-            for result in _pipeline_artistic(
-                prompt=prompt,
-                negative_prompt=negative_prompt,
-                qr_text=qr_text,
-                input_type=input_type,
-                image_size=image_size,
-                border_size=border_size,
-                error_correction=error_correction,
-                module_size=module_size,
-                module_drawer=module_drawer,
-                seed=actual_seed,
-                enable_upscale=enable_upscale,
-                freeu_b1=freeu_b1,
-                freeu_b2=freeu_b2,
-                freeu_s1=freeu_s1,
-                freeu_s2=freeu_s2,
-                enable_sag=enable_sag,
-                sag_scale=sag_scale,
-                sag_blur_sigma=sag_blur_sigma,
-                controlnet_strength_first=controlnet_strength_first,
-                controlnet_strength_final=controlnet_strength_final,
-                enable_color_quantization=enable_color_quantization,
-                num_colors=num_colors,
-                color_1=color_1,
-                color_2=color_2,
-                color_3=color_3,
-                color_4=color_4,
-                apply_gradient_filter=apply_gradient_filter,
-                gradient_strength=gradient_strength,
-                variation_steps=variation_steps,
-                enable_animation=enable_animation,
-                enable_cascade_filter=enable_cascade_filter,
-                cascade_blur_kernel=cascade_blur_kernel,
-                cascade_threshold_ratio=cascade_threshold_ratio,
-                enable_detail_sharpening=enable_detail_sharpening,
-                sharpening_radius=sharpening_radius,
-                sharpening_amount=sharpening_amount,
-                sharpening_threshold=sharpening_threshold,
-                customize_tile_preprocessing=customize_tile_preprocessing,
-                tile_pyrup_iters=tile_pyrup_iters,
-                gr_progress=gr_progress,
-            ):
-                yield result
+        try:
+            if pipeline == "standard":
+                for result in _pipeline_standard(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    qr_text=qr_text,
+                    input_type=input_type,
+                    image_size=image_size,
+                    border_size=border_size,
+                    error_correction=error_correction,
+                    module_size=module_size,
+                    module_drawer=module_drawer,
+                    seed=actual_seed,
+                    enable_upscale=enable_upscale,
+                    controlnet_strength_first=controlnet_strength_standard_first,
+                    controlnet_strength_final=controlnet_strength_standard_final,
+                    enable_color_quantization=enable_color_quantization,
+                    num_colors=num_colors,
+                    color_1=color_1,
+                    color_2=color_2,
+                    color_3=color_3,
+                    color_4=color_4,
+                    apply_gradient_filter=apply_gradient_filter,
+                    gradient_strength=gradient_strength,
+                    variation_steps=variation_steps,
+                    enable_animation=enable_animation,
+                    gr_progress=gr_progress,
+                ):
+                    yield result
+            else:  # artistic
+                for result in _pipeline_artistic(
+                    prompt=prompt,
+                    negative_prompt=negative_prompt,
+                    qr_text=qr_text,
+                    input_type=input_type,
+                    image_size=image_size,
+                    border_size=border_size,
+                    error_correction=error_correction,
+                    module_size=module_size,
+                    module_drawer=module_drawer,
+                    seed=actual_seed,
+                    enable_upscale=enable_upscale,
+                    freeu_b1=freeu_b1,
+                    freeu_b2=freeu_b2,
+                    freeu_s1=freeu_s1,
+                    freeu_s2=freeu_s2,
+                    enable_sag=enable_sag,
+                    sag_scale=sag_scale,
+                    sag_blur_sigma=sag_blur_sigma,
+                    controlnet_strength_first=controlnet_strength_first,
+                    controlnet_strength_final=controlnet_strength_final,
+                    enable_color_quantization=enable_color_quantization,
+                    num_colors=num_colors,
+                    color_1=color_1,
+                    color_2=color_2,
+                    color_3=color_3,
+                    color_4=color_4,
+                    apply_gradient_filter=apply_gradient_filter,
+                    gradient_strength=gradient_strength,
+                    variation_steps=variation_steps,
+                    enable_animation=enable_animation,
+                    enable_cascade_filter=enable_cascade_filter,
+                    cascade_blur_kernel=cascade_blur_kernel,
+                    cascade_threshold_ratio=cascade_threshold_ratio,
+                    enable_detail_sharpening=enable_detail_sharpening,
+                    sharpening_radius=sharpening_radius,
+                    sharpening_amount=sharpening_amount,
+                    sharpening_threshold=sharpening_threshold,
+                    customize_tile_preprocessing=customize_tile_preprocessing,
+                    tile_pyrup_iters=tile_pyrup_iters,
+                    gr_progress=gr_progress,
+                ):
+                    yield result
+        except Exception:
+            print(f"[generation-error][unified][{pipeline}]", traceback.format_exc())
+            raise
 
     # Log actual time spent after generation completes
     elapsed_time = time.time() - start_time
@@ -1837,6 +1842,7 @@ def generate_standard_qr(
                 gr.update(visible=False),
             )
     except Exception as exc:
+        print("[generation-error][standard-wrapper]", traceback.format_exc())
         final_status = _format_exception_message(exc)
 
     # After all steps complete, show the accordion with JSON and export buttons
@@ -2063,6 +2069,7 @@ def generate_artistic_qr(
                     gr.update(visible=False),
                 )
     except Exception as exc:
+        print("[generation-error][artistic-wrapper]", traceback.format_exc())
         final_status = _format_exception_message(exc)
 
     # After all steps complete, show the accordion with JSON and the "Try Another Example" button
