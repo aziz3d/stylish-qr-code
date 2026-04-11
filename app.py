@@ -133,6 +133,16 @@ def _classify_error_bucket(status: str) -> str:
     return "model_failure"
 
 
+def _normalize_error_message(status: str) -> str:
+    return (status or "").strip()
+
+
+def _truncate_error_message(message: str, limit: int = 300) -> str:
+    if len(message) <= limit:
+        return message
+    return message[: limit - 3] + "..."
+
+
 def _queue_background_work(fn, *args, **kwargs) -> None:
     thread = threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True)
     thread.start()
@@ -206,6 +216,7 @@ def _record_generation_event(payload: Mapping[str, Any]) -> None:
             "analytics_opt_in": payload.get("analytics_opt_in"),
             "status": payload.get("status"),
             "error_bucket": payload.get("error_bucket"),
+            "error_message_hash": payload.get("error_message_hash"),
             "generation_id": payload.get("generation_id"),
             "anonymous_id": payload.get("anonymous_id"),
         },
@@ -244,7 +255,10 @@ def _build_generation_payload(
     status: str,
     request: Any,
 ) -> Mapping[str, Any]:
-    error_bucket = "none" if status == "success" else _classify_error_bucket(status)
+    error_message = _normalize_error_message(status if status != "success" else "")
+    error_bucket = (
+        "none" if status == "success" else _classify_error_bucket(error_message)
+    )
     payload = {
         "generation_id": generation_id,
         "timestamp": _utc_now_iso(),
@@ -257,6 +271,14 @@ def _build_generation_payload(
         "error_bucket": error_bucket,
         "anonymous_id": _build_anon_id(request, source, fallback=generation_id),
     }
+    if error_message:
+        payload = {
+            **payload,
+            "error_message_excerpt": _truncate_error_message(error_message),
+            "error_message_hash": hashlib.sha256(
+                error_message.encode("utf-8")
+            ).hexdigest()[:16],
+        }
     if analytics_opt_in:
         payload = {
             **payload,
