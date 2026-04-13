@@ -1796,6 +1796,45 @@ def generate_standard_qr(
     }
     settings_json = generate_settings_json(settings_dict)
 
+    try:
+        _validate_qr_dimensions(
+            qr_text=text_input.replace("https://", "").replace("http://", "")
+            if input_type == "URL"
+            else text_input,
+            input_type=input_type,
+            image_size=image_size,
+            border_size=border_size,
+            error_correction=error_correction,
+            module_size=module_size,
+        )
+    except RuntimeError as exc:
+        final_status = str(exc)
+        if ANALYTICS_ENABLED:
+            _record_generation_event(
+                _build_generation_payload(
+                    generation_id=generation_id,
+                    source=source,
+                    pipeline="standard",
+                    tool_name="generate_standard_qr",
+                    analytics_opt_in=analytics_opt_in,
+                    prompt=prompt,
+                    text_input=text_input,
+                    settings=settings_dict,
+                    status=final_status,
+                    request=request,
+                )
+            )
+        if source == "mcp":
+            raise RuntimeError(final_status)
+        yield (
+            None,
+            final_status,
+            gr.update(),
+            gr.update(),
+            gr.update(visible=False),
+        )
+        return
+
     # Generate QR and yield progressive results
     generator = generate_qr_code_unified(
         prompt,
@@ -1990,6 +2029,47 @@ def generate_artistic_qr(
         "variation_steps": variation_steps,
     }
     settings_json = generate_settings_json(settings_dict)
+
+    try:
+        _validate_qr_dimensions(
+            qr_text=text_input.replace("https://", "").replace("http://", "")
+            if input_type == "URL"
+            else text_input,
+            input_type=input_type,
+            image_size=image_size,
+            border_size=border_size,
+            error_correction=error_correction,
+            module_size=module_size,
+        )
+    except RuntimeError as exc:
+        final_status = str(exc)
+        if ANALYTICS_ENABLED:
+            _record_generation_event(
+                _build_generation_payload(
+                    generation_id=generation_id,
+                    source=source,
+                    pipeline="artistic",
+                    tool_name="generate_artistic_qr",
+                    analytics_opt_in=analytics_opt_in,
+                    prompt=prompt,
+                    text_input=text_input,
+                    settings=settings_dict,
+                    status=final_status,
+                    request=request,
+                )
+            )
+        if source == "mcp":
+            raise RuntimeError(final_status)
+        yield (
+            None,
+            final_status,
+            gr.update(),
+            gr.update(),
+            gr.update(visible=False),
+            gr.update(visible=True),
+            gr.update(visible=False),
+        )
+        return
 
     # Generate QR and yield progressive results
     generator = generate_qr_code_unified(
@@ -3499,21 +3579,6 @@ def _pipeline_artistic(
 # Define artistic examples data (at module level for hot reload)
 ARTISTIC_EXAMPLES = [
     {
-        "image": "examples/artistic/japanese_temple.jpg",
-        "label": "Japanese Temple",
-        "prompt": "some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
-        "text_input": "https://www.google.com",
-        "input_type": "URL",
-        "image_size": 640,
-        "border_size": 6,
-        "error_correction": "Medium (15%)",
-        "module_size": 14,
-        "module_drawer": "Square",
-        "use_custom_seed": True,
-        "seed": 718313,
-        "sag_blur_sigma": 0.5,
-    },
-    {
         "image": "examples/artistic/sunset_mountains.jpg",
         "label": "Sunset Mountains",
         "prompt": "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
@@ -3523,6 +3588,21 @@ ARTISTIC_EXAMPLES = [
         "border_size": 6,
         "error_correction": "High (30%)",
         "module_size": 16,
+        "module_drawer": "Square",
+        "use_custom_seed": True,
+        "seed": 718313,
+        "sag_blur_sigma": 0.5,
+    },
+    {
+        "image": "examples/artistic/japanese_temple.jpg",
+        "label": "Japanese Temple",
+        "prompt": "some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
+        "text_input": "https://www.google.com",
+        "input_type": "URL",
+        "image_size": 640,
+        "border_size": 6,
+        "error_correction": "Medium (15%)",
+        "module_size": 14,
         "module_drawer": "Square",
         "use_custom_seed": True,
         "seed": 718313,
