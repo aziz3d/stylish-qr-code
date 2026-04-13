@@ -3799,13 +3799,13 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_prompt_input = gr.Textbox(
                         label="Prompt",
                         placeholder="Describe the image you want to generate (check examples below for inspiration)",
-                        value="some clothes spread on ropes, Japanese girl sits inside in the middle of the image, few sakura flowers, realistic, great details, out in the open air sunny day realistic, great details, absence of people, Detailed and Intricate, CGI, Photoshoot, rim light, 8k, 16k, ultra detail",
+                        value="a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
                         lines=3,
                     )
                     artistic_text_input = gr.Textbox(
                         label="QR Code Content",
                         placeholder="Enter URL or plain text",
-                        value="https://www.google.com",
+                        value="https://github.com",
                         lines=3,
                     )
 
@@ -3852,7 +3852,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             minimum=512,
                             maximum=1024,
                             step=64,
-                            value=640,
+                            value=704,
                             label="Image Size",
                             info="Base size of the generated image. Final output will be 2x this size (e.g., 640 → 1280) due to the two-step enhancement process. Higher values use more VRAM and take longer to process.",
                         )
@@ -3875,7 +3875,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 "Quartile (25%)",
                                 "High (30%)",
                             ],
-                            value="Medium (15%)",
+                            value="High (30%)",
                             label="Error Correction Level",
                             info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. High (30%) is recommended for artistic QR codes.",
                         )
@@ -3885,7 +3885,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             minimum=4,
                             maximum=16,
                             step=1,
-                            value=14,
+                            value=16,
                             label="QR Module Size",
                             info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 14 is a good starting point.",
                         )
