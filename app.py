@@ -3586,8 +3586,8 @@ ARTISTIC_EXAMPLES = [
         "input_type": "URL",
         "image_size": 704,
         "border_size": 6,
-        "error_correction": "High (30%)",
-        "module_size": 16,
+        "error_correction": "Medium (15%)",
+        "module_size": 14,
         "module_drawer": "Square",
         "use_custom_seed": True,
         "seed": 718313,
@@ -3875,7 +3875,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 "Quartile (25%)",
                                 "High (30%)",
                             ],
-                            value="High (30%)",
+                            value="Medium (15%)",
                             label="Error Correction Level",
                             info="Higher error correction makes the QR code more scannable when damaged or obscured, but increases its size and complexity. High (30%) is recommended for artistic QR codes.",
                         )
@@ -3885,7 +3885,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             minimum=4,
                             maximum=16,
                             step=1,
-                            value=16,
+                            value=14,
                             label="QR Module Size",
                             info="Pixel width of the smallest QR code unit. Larger values improve readability but require a larger image size. 14 is a good starting point.",
                         )
