@@ -3735,6 +3735,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
         - Register a Hugging Face account for more generations
         - Subscribe to PRO for even more generations
 
+        **Tip:** Short URLs scan and generate more reliably. If your link is longer than ~38 characters, use an image size above 704 for better results.
+
         Choose a tab below to get started!
         """)
 
