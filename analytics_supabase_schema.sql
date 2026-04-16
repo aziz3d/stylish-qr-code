@@ -26,6 +26,10 @@ create index if not exists analytics_generation_events_generation_id_idx
 create index if not exists analytics_generation_events_source_pipeline_idx
   on public.analytics_generation_events (source, pipeline, timestamp desc);
 
+alter table public.analytics_generation_events enable row level security;
+
+revoke all on table public.analytics_generation_events from anon, authenticated;
+
 create table if not exists public.analytics_download_events (
   id uuid primary key default gen_random_uuid(),
   generation_id text,
@@ -47,6 +51,10 @@ create index if not exists analytics_download_events_generation_id_idx
 
 create index if not exists analytics_download_events_source_pipeline_idx
   on public.analytics_download_events (source, pipeline, timestamp desc);
+
+alter table public.analytics_download_events enable row level security;
+
+revoke all on table public.analytics_download_events from anon, authenticated;
 
 create or replace view public.analytics_generation_outcomes as
 select
