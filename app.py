@@ -818,6 +818,57 @@ def _get_artistic_validation_state(
     return gr.update(value="", visible=False), gr.update(interactive=True)
 
 
+def _get_standard_validation_state(
+    qr_text: str,
+    input_type: str,
+    image_size: int,
+    border_size: int,
+    error_correction: str,
+    module_size: int,
+):
+    normalized_qr_text = _normalize_qr_text_for_validation(qr_text, input_type)
+    if not normalized_qr_text.strip():
+        return gr.update(value="", visible=False), gr.update(interactive=True)
+
+    try:
+        size = _compute_qr_dimensions(
+            qr_text=qr_text,
+            input_type=input_type,
+            border_size=border_size,
+            error_correction=error_correction,
+            module_size=module_size,
+        )
+    except Exception:
+        return gr.update(value="", visible=False), gr.update(interactive=True)
+
+    if size > image_size:
+        return (
+            gr.update(
+                value="This QR code does not fit the selected image size. Increase image size or reduce module size, border size, or error correction.",
+                visible=True,
+            ),
+            gr.update(interactive=False),
+        )
+
+    if (
+        input_type == "URL"
+        and len(normalized_qr_text) >= 38
+        and image_size <= 512
+        and module_size >= 12
+        and border_size >= 4
+        and error_correction in {"Medium (15%)", "Quartile (25%)", "High (30%)"}
+    ):
+        return (
+            gr.update(
+                value="This link may be too long for the current standard settings. Short URLs work better, or try image size above 512.",
+                visible=True,
+            ),
+            gr.update(interactive=True),
+        )
+
+    return gr.update(value="", visible=False), gr.update(interactive=True)
+
+
 # Device-specific optimizations
 # Note: On ZeroGPU, torch.cuda.is_available() is False at module load time
 # CUDA only becomes available inside @spaces.GPU decorated functions
@@ -5157,6 +5208,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             info="Controls the final tile ControlNet pass strength. Usually kept at 1.0 for clarity. Default: 1.0",
                         )
 
+                    standard_validation_message = gr.Markdown(visible=False)
+
                     # The generate button
                     generate_btn = gr.Button("Generate Standard QR", variant="primary")
 
@@ -5279,6 +5332,19 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 ],
             )
 
+            load_settings_btn_standard.click(
+                fn=_get_standard_validation_state,
+                inputs=[
+                    text_input,
+                    input_type,
+                    image_size,
+                    border_size,
+                    error_correction,
+                    module_size,
+                ],
+                outputs=[standard_validation_message, generate_btn],
+            )
+
             # Clear button event handler
             clear_json_btn_standard.click(
                 fn=lambda: ("", gr.update(visible=False)),
@@ -5292,6 +5358,27 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 inputs=[use_custom_seed],
                 outputs=[seed],
             )
+
+            for component in [
+                text_input,
+                input_type,
+                image_size,
+                border_size,
+                error_correction,
+                module_size,
+            ]:
+                component.change(
+                    fn=_get_standard_validation_state,
+                    inputs=[
+                        text_input,
+                        input_type,
+                        image_size,
+                        border_size,
+                        error_correction,
+                        module_size,
+                    ],
+                    outputs=[standard_validation_message, generate_btn],
+                )
 
             # Add examples
             examples = [
@@ -5396,6 +5483,19 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     "Square",
                 ],
             ]
+
+            demo.load(
+                fn=_get_standard_validation_state,
+                inputs=[
+                    text_input,
+                    input_type,
+                    image_size,
+                    border_size,
+                    error_correction,
+                    module_size,
+                ],
+                outputs=[standard_validation_message, generate_btn],
+            )
 
             gr.Examples(
                 examples=examples,
