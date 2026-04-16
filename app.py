@@ -699,22 +699,28 @@ def log_progress(message, gr_progress=None, progress_value=None):
         gr_progress(progress_value, desc=message)
 
 
-def _validate_qr_dimensions(
+def _normalize_qr_text_for_validation(qr_text: str, input_type: str) -> str:
+    if input_type == "URL":
+        return qr_text.replace("https://", "").replace("http://", "")
+    return qr_text
+
+
+def _compute_qr_dimensions(
     *,
     qr_text: str,
     input_type: str,
-    image_size: int,
     border_size: int,
     error_correction: str,
     module_size: int,
-) -> None:
+) -> int:
+    normalized_qr_text = _normalize_qr_text_for_validation(qr_text, input_type)
     qr_protocol = "None" if input_type == "Plain Text" else "Https"
     if qr_protocol == "Https":
-        full_text = f"https://{qr_text}"
+        full_text = f"https://{normalized_qr_text}"
     elif qr_protocol == "Http":
-        full_text = f"http://{qr_text}"
+        full_text = f"http://{normalized_qr_text}"
     else:
-        full_text = qr_text
+        full_text = normalized_qr_text
 
     error_level = {
         "Low (7%)": qrcode.constants.ERROR_CORRECT_L,
@@ -735,12 +741,81 @@ def _validate_qr_dimensions(
     qr.add_data(full_text)
     qr.make(fit=True)
 
-    size = len(qr.get_matrix()) * module_size
+    return len(qr.get_matrix()) * module_size
+
+
+def _validate_qr_dimensions(
+    *,
+    qr_text: str,
+    input_type: str,
+    image_size: int,
+    border_size: int,
+    error_correction: str,
+    module_size: int,
+) -> None:
+    size = _compute_qr_dimensions(
+        qr_text=qr_text,
+        input_type=input_type,
+        border_size=border_size,
+        error_correction=error_correction,
+        module_size=module_size,
+    )
     if size > image_size:
         raise RuntimeError(
             f"Error generating QR code: QR dimensions of {size} exceed max size of {image_size}.\n"
             "Try with a shorter text, increase the image size, or decrease the border size, module size, and error correction level under Change Settings Manually."
         )
+
+
+def _get_artistic_validation_state(
+    qr_text: str,
+    input_type: str,
+    image_size: int,
+    border_size: int,
+    error_correction: str,
+    module_size: int,
+):
+    normalized_qr_text = _normalize_qr_text_for_validation(qr_text, input_type)
+    if not normalized_qr_text.strip():
+        return gr.update(value="", visible=False), gr.update(interactive=True)
+
+    try:
+        size = _compute_qr_dimensions(
+            qr_text=qr_text,
+            input_type=input_type,
+            border_size=border_size,
+            error_correction=error_correction,
+            module_size=module_size,
+        )
+    except Exception:
+        return gr.update(value="", visible=False), gr.update(interactive=True)
+
+    if size > image_size:
+        return (
+            gr.update(
+                value="This QR code does not fit the selected image size. Increase image size or reduce module size, border size, or error correction.",
+                visible=True,
+            ),
+            gr.update(interactive=False),
+        )
+
+    if (
+        input_type == "URL"
+        and len(normalized_qr_text) >= 38
+        and image_size <= 704
+        and module_size >= 14
+        and border_size >= 6
+        and error_correction in {"Medium (15%)", "Quartile (25%)", "High (30%)"}
+    ):
+        return (
+            gr.update(
+                value="This link may be too long for the current artistic settings. Short URLs work better, or try image size above 704.",
+                visible=True,
+            ),
+            gr.update(interactive=True),
+        )
+
+    return gr.update(value="", visible=False), gr.update(interactive=True)
 
 
 # Device-specific optimizations
@@ -4348,6 +4423,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                             info="Controls how much the AI modifies the QR in the refinement pass. LOWER = preserves QR structure, HIGHER = more creative. Try 0.55-0.65 for balance. Default: 0.70",
                         )
 
+                    artistic_validation_message = gr.Markdown(visible=False)
+
                     # The generate button for artistic QR
                     artistic_generate_btn = gr.Button(
                         "Generate Artistic QR", variant="primary"
@@ -4540,6 +4617,27 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 outputs=[artistic_seed],
             )
 
+            for component in [
+                artistic_text_input,
+                artistic_input_type,
+                artistic_image_size,
+                artistic_border_size,
+                artistic_error_correction,
+                artistic_module_size,
+            ]:
+                component.change(
+                    fn=_get_artistic_validation_state,
+                    inputs=[
+                        artistic_text_input,
+                        artistic_input_type,
+                        artistic_image_size,
+                        artistic_border_size,
+                        artistic_error_correction,
+                        artistic_module_size,
+                    ],
+                    outputs=[artistic_validation_message, artistic_generate_btn],
+                )
+
             # Event handler for "Try Another Example" button
             def show_examples_again(current_idx):
                 """Show the gallery with a random different example and load its settings"""
@@ -4549,6 +4647,14 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 ]
                 new_idx = random.choice(available) if available else 0
                 example = ARTISTIC_EXAMPLES[new_idx]
+                validation_message, button_state = _get_artistic_validation_state(
+                    example["text_input"],
+                    example["input_type"],
+                    example["image_size"],
+                    example["border_size"],
+                    example["error_correction"],
+                    example["module_size"],
+                )
                 return (
                     gr.update(visible=False),  # Hide output image
                     "Settings loaded! Click 'Generate Artistic QR' to create your QR code",  # Status message
@@ -4571,6 +4677,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     example["seed"],
                     example["sag_blur_sigma"],
                     new_idx,  # Update current example index
+                    validation_message,
+                    button_state,
                 )
 
             show_examples_btn.click(
@@ -4596,6 +4704,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_seed,
                     sag_blur_sigma,
                     current_example_index,
+                    artistic_validation_message,
+                    artistic_generate_btn,
                 ],
             )
 
@@ -4603,6 +4713,14 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
             def load_example_settings(evt: gr.SelectData):
                 """Load settings when user clicks an example image"""
                 example = ARTISTIC_EXAMPLES[evt.index]
+                validation_message, button_state = _get_artistic_validation_state(
+                    example["text_input"],
+                    example["input_type"],
+                    example["image_size"],
+                    example["border_size"],
+                    example["error_correction"],
+                    example["module_size"],
+                )
                 return (
                     example["prompt"],
                     example["text_input"],
@@ -4620,6 +4738,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     gr.update(visible=False),  # Hide settings accordion
                     evt.index,  # Store the selected example index
                     gr.update(visible=False),  # Hide export buttons
+                    validation_message,
+                    button_state,
                 )
 
             # Attach the event handler
@@ -4643,7 +4763,22 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     settings_accordion_artistic,  # Reset visibility
                     current_example_index,  # Store the selected example index
                     export_row_artistic,  # Hide export buttons
+                    artistic_validation_message,
+                    artistic_generate_btn,
                 ],
+            )
+
+            demo.load(
+                fn=_get_artistic_validation_state,
+                inputs=[
+                    artistic_text_input,
+                    artistic_input_type,
+                    artistic_image_size,
+                    artistic_border_size,
+                    artistic_error_correction,
+                    artistic_module_size,
+                ],
+                outputs=[artistic_validation_message, artistic_generate_btn],
             )
 
         # STANDARD QR TAB
