@@ -38,3 +38,6 @@ The Space includes an optional analytics consent toggle for both UI and MCP usag
 ### Supabase schema
 
 Apply `analytics_supabase_schema.sql` to your Supabase project before enabling writes from the Space.
+
+The analytics schema is intended for backend-only writes using `SUPABASE_SERVICE_ROLE_KEY`.
+Do not grant `anon` or `authenticated` direct access to the analytics tables or derived views.
