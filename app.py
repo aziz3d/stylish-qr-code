@@ -58,6 +58,9 @@ SUPABASE_GENERATION_TABLE = os.getenv(
 SUPABASE_DOWNLOAD_TABLE = os.getenv(
     "SUPABASE_DOWNLOAD_TABLE", "analytics_download_events"
 )
+SUPABASE_VALIDATION_TABLE = os.getenv(
+    "SUPABASE_VALIDATION_TABLE", "analytics_validation_events"
+)
 POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com").rstrip("/")
 POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "") or os.getenv(
     "POSTHOG_SECRET_KEY", ""
@@ -235,6 +238,26 @@ def _record_generation_event(payload: Mapping[str, Any]) -> None:
     )
 
 
+def _record_validation_event(payload: Mapping[str, Any]) -> None:
+    _emit_analytics_log("validation", payload)
+    _queue_background_work(_write_supabase_row, SUPABASE_VALIDATION_TABLE, payload)
+    _queue_background_work(
+        _capture_posthog_event,
+        "validation_blocked",
+        {
+            "product": "ai_qr_generator",
+            "source": payload.get("source"),
+            "pipeline": payload.get("pipeline"),
+            "tool_name": payload.get("tool_name"),
+            "analytics_opt_in": payload.get("analytics_opt_in"),
+            "error_bucket": payload.get("error_bucket"),
+            "error_message_hash": payload.get("error_message_hash"),
+            "generation_id": payload.get("generation_id"),
+            "anonymous_id": payload.get("anonymous_id"),
+        },
+    )
+
+
 def _record_download_event(payload: Mapping[str, Any]) -> None:
     _emit_analytics_log("download", payload)
     _queue_background_work(_write_supabase_row, SUPABASE_DOWNLOAD_TABLE, payload)
@@ -331,6 +354,45 @@ def _build_download_payload(
             **payload,
             "qr_payload_full": text_input,
             "seed": seed,
+        }
+    return payload
+
+
+def _build_validation_payload(
+    *,
+    generation_id: str,
+    source: str,
+    pipeline: str,
+    tool_name: str,
+    analytics_opt_in: bool,
+    prompt: str,
+    text_input: str,
+    settings: Mapping[str, Any],
+    status: str,
+    request: Any,
+) -> Mapping[str, Any]:
+    error_message = _normalize_error_message(status)
+    payload = {
+        "generation_id": generation_id,
+        "timestamp": _utc_now_iso(),
+        "product": "ai_qr_generator",
+        "source": source,
+        "pipeline": pipeline,
+        "tool_name": tool_name,
+        "analytics_opt_in": analytics_opt_in,
+        "error_bucket": "validation_blocked",
+        "anonymous_id": _build_anon_id(request, source, fallback=generation_id),
+        "error_message_excerpt": _truncate_error_message(error_message),
+        "error_message_hash": hashlib.sha256(error_message.encode("utf-8")).hexdigest()[
+            :16
+        ],
+    }
+    if analytics_opt_in:
+        payload = {
+            **payload,
+            "prompt_full": prompt,
+            "qr_payload_full": text_input,
+            "settings_full": dict(settings),
         }
     return payload
 
@@ -2140,8 +2202,8 @@ def generate_standard_qr(
     except RuntimeError as exc:
         final_status = str(exc)
         if ANALYTICS_ENABLED:
-            _record_generation_event(
-                _build_generation_payload(
+            _record_validation_event(
+                _build_validation_payload(
                     generation_id=generation_id,
                     source=source,
                     pipeline="standard",
@@ -2374,8 +2436,8 @@ def generate_artistic_qr(
     except RuntimeError as exc:
         final_status = str(exc)
         if ANALYTICS_ENABLED:
-            _record_generation_event(
-                _build_generation_payload(
+            _record_validation_event(
+                _build_validation_payload(
                     generation_id=generation_id,
                     source=source,
                     pipeline="artistic",
