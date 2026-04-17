@@ -767,6 +767,13 @@ def _validate_qr_dimensions(
         )
 
 
+def _recommended_image_size(required_size: int, current_size: int) -> int | None:
+    for candidate in range(512, 1025, 64):
+        if candidate >= required_size and candidate > current_size:
+            return candidate
+    return None
+
+
 def _get_artistic_validation_state(
     qr_text: str,
     input_type: str,
@@ -777,7 +784,12 @@ def _get_artistic_validation_state(
 ):
     normalized_qr_text = _normalize_qr_text_for_validation(qr_text, input_type)
     if not normalized_qr_text.strip():
-        return gr.update(value="", visible=False), gr.update(interactive=True)
+        return (
+            gr.update(value="", visible=False),
+            gr.update(interactive=True),
+            gr.update(visible=False),
+            None,
+        )
 
     try:
         size = _compute_qr_dimensions(
@@ -788,15 +800,31 @@ def _get_artistic_validation_state(
             module_size=module_size,
         )
     except Exception:
-        return gr.update(value="", visible=False), gr.update(interactive=True)
+        return (
+            gr.update(value="", visible=False),
+            gr.update(interactive=True),
+            gr.update(visible=False),
+            None,
+        )
 
     if size > image_size:
+        suggested_size = _recommended_image_size(size, image_size)
+        button_update = (
+            gr.update(
+                value=f"Increase image size to {suggested_size}",
+                visible=True,
+            )
+            if suggested_size is not None
+            else gr.update(visible=False)
+        )
         return (
             gr.update(
                 value="This QR code does not fit the selected image size. Increase image size or reduce module size, border size, or error correction.",
                 visible=True,
             ),
             gr.update(interactive=False),
+            button_update,
+            suggested_size,
         )
 
     if (
@@ -813,9 +841,16 @@ def _get_artistic_validation_state(
                 visible=True,
             ),
             gr.update(interactive=True),
+            gr.update(visible=False),
+            None,
         )
 
-    return gr.update(value="", visible=False), gr.update(interactive=True)
+    return (
+        gr.update(value="", visible=False),
+        gr.update(interactive=True),
+        gr.update(visible=False),
+        None,
+    )
 
 
 def _get_standard_validation_state(
@@ -828,7 +863,12 @@ def _get_standard_validation_state(
 ):
     normalized_qr_text = _normalize_qr_text_for_validation(qr_text, input_type)
     if not normalized_qr_text.strip():
-        return gr.update(value="", visible=False), gr.update(interactive=True)
+        return (
+            gr.update(value="", visible=False),
+            gr.update(interactive=True),
+            gr.update(visible=False),
+            None,
+        )
 
     try:
         size = _compute_qr_dimensions(
@@ -839,15 +879,31 @@ def _get_standard_validation_state(
             module_size=module_size,
         )
     except Exception:
-        return gr.update(value="", visible=False), gr.update(interactive=True)
+        return (
+            gr.update(value="", visible=False),
+            gr.update(interactive=True),
+            gr.update(visible=False),
+            None,
+        )
 
     if size > image_size:
+        suggested_size = _recommended_image_size(size, image_size)
+        button_update = (
+            gr.update(
+                value=f"Increase image size to {suggested_size}",
+                visible=True,
+            )
+            if suggested_size is not None
+            else gr.update(visible=False)
+        )
         return (
             gr.update(
                 value="This QR code does not fit the selected image size. Increase image size or reduce module size, border size, or error correction.",
                 visible=True,
             ),
             gr.update(interactive=False),
+            button_update,
+            suggested_size,
         )
 
     if (
@@ -864,9 +920,22 @@ def _get_standard_validation_state(
                 visible=True,
             ),
             gr.update(interactive=True),
+            gr.update(visible=False),
+            None,
         )
 
-    return gr.update(value="", visible=False), gr.update(interactive=True)
+    return (
+        gr.update(value="", visible=False),
+        gr.update(interactive=True),
+        gr.update(visible=False),
+        None,
+    )
+
+
+def _apply_recommended_image_size(recommended_size: int | None):
+    if recommended_size is None:
+        return gr.update()
+    return gr.update(value=recommended_size)
 
 
 # Device-specific optimizations
@@ -4475,6 +4544,12 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         )
 
                     artistic_validation_message = gr.Markdown(visible=False)
+                    artistic_autofix_btn = gr.Button(
+                        value="Increase image size automatically to fit QR code",
+                        variant="secondary",
+                        visible=False,
+                    )
+                    artistic_recommended_image_size = gr.State(value=None)
 
                     # The generate button for artistic QR
                     artistic_generate_btn = gr.Button(
@@ -4686,7 +4761,12 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         artistic_error_correction,
                         artistic_module_size,
                     ],
-                    outputs=[artistic_validation_message, artistic_generate_btn],
+                    outputs=[
+                        artistic_validation_message,
+                        artistic_generate_btn,
+                        artistic_autofix_btn,
+                        artistic_recommended_image_size,
+                    ],
                 )
 
             # Event handler for "Try Another Example" button
@@ -4698,13 +4778,15 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 ]
                 new_idx = random.choice(available) if available else 0
                 example = ARTISTIC_EXAMPLES[new_idx]
-                validation_message, button_state = _get_artistic_validation_state(
-                    example["text_input"],
-                    example["input_type"],
-                    example["image_size"],
-                    example["border_size"],
-                    example["error_correction"],
-                    example["module_size"],
+                validation_message, button_state, autofix_button, recommended_size = (
+                    _get_artistic_validation_state(
+                        example["text_input"],
+                        example["input_type"],
+                        example["image_size"],
+                        example["border_size"],
+                        example["error_correction"],
+                        example["module_size"],
+                    )
                 )
                 return (
                     gr.update(visible=False),  # Hide output image
@@ -4730,6 +4812,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     new_idx,  # Update current example index
                     validation_message,
                     button_state,
+                    autofix_button,
+                    recommended_size,
                 )
 
             show_examples_btn.click(
@@ -4757,6 +4841,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     current_example_index,
                     artistic_validation_message,
                     artistic_generate_btn,
+                    artistic_autofix_btn,
+                    artistic_recommended_image_size,
                 ],
             )
 
@@ -4764,13 +4850,15 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
             def load_example_settings(evt: gr.SelectData):
                 """Load settings when user clicks an example image"""
                 example = ARTISTIC_EXAMPLES[evt.index]
-                validation_message, button_state = _get_artistic_validation_state(
-                    example["text_input"],
-                    example["input_type"],
-                    example["image_size"],
-                    example["border_size"],
-                    example["error_correction"],
-                    example["module_size"],
+                validation_message, button_state, autofix_button, recommended_size = (
+                    _get_artistic_validation_state(
+                        example["text_input"],
+                        example["input_type"],
+                        example["image_size"],
+                        example["border_size"],
+                        example["error_correction"],
+                        example["module_size"],
+                    )
                 )
                 return (
                     example["prompt"],
@@ -4791,6 +4879,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     gr.update(visible=False),  # Hide export buttons
                     validation_message,
                     button_state,
+                    autofix_button,
+                    recommended_size,
                 )
 
             # Attach the event handler
@@ -4816,6 +4906,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     export_row_artistic,  # Hide export buttons
                     artistic_validation_message,
                     artistic_generate_btn,
+                    artistic_autofix_btn,
+                    artistic_recommended_image_size,
                 ],
             )
 
@@ -4829,7 +4921,18 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_error_correction,
                     artistic_module_size,
                 ],
-                outputs=[artistic_validation_message, artistic_generate_btn],
+                outputs=[
+                    artistic_validation_message,
+                    artistic_generate_btn,
+                    artistic_autofix_btn,
+                    artistic_recommended_image_size,
+                ],
+            )
+
+            artistic_autofix_btn.click(
+                fn=_apply_recommended_image_size,
+                inputs=[artistic_recommended_image_size],
+                outputs=[artistic_image_size],
             )
 
         # STANDARD QR TAB
@@ -5209,6 +5312,12 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         )
 
                     standard_validation_message = gr.Markdown(visible=False)
+                    standard_autofix_btn = gr.Button(
+                        value="Increase image size automatically to fit QR code",
+                        variant="secondary",
+                        visible=False,
+                    )
+                    standard_recommended_image_size = gr.State(value=None)
 
                     # The generate button
                     generate_btn = gr.Button("Generate Standard QR", variant="primary")
@@ -5342,7 +5451,12 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     error_correction,
                     module_size,
                 ],
-                outputs=[standard_validation_message, generate_btn],
+                outputs=[
+                    standard_validation_message,
+                    generate_btn,
+                    standard_autofix_btn,
+                    standard_recommended_image_size,
+                ],
             )
 
             # Clear button event handler
@@ -5377,8 +5491,19 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         error_correction,
                         module_size,
                     ],
-                    outputs=[standard_validation_message, generate_btn],
+                    outputs=[
+                        standard_validation_message,
+                        generate_btn,
+                        standard_autofix_btn,
+                        standard_recommended_image_size,
+                    ],
                 )
+
+            standard_autofix_btn.click(
+                fn=_apply_recommended_image_size,
+                inputs=[standard_recommended_image_size],
+                outputs=[image_size],
+            )
 
             # Add examples
             examples = [
@@ -5494,7 +5619,12 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     error_correction,
                     module_size,
                 ],
-                outputs=[standard_validation_message, generate_btn],
+                outputs=[
+                    standard_validation_message,
+                    generate_btn,
+                    standard_autofix_btn,
+                    standard_recommended_image_size,
+                ],
             )
 
             gr.Examples(
