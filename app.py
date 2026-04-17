@@ -769,7 +769,7 @@ def _validate_qr_dimensions(
 
 def _recommended_image_size(required_size: int, current_size: int) -> int | None:
     for candidate in range(512, 1025, 64):
-        if candidate >= required_size and candidate > current_size:
+        if candidate >= required_size:
             return candidate
     return None
 
@@ -827,6 +827,18 @@ def _get_artistic_validation_state(
             suggested_size,
         )
 
+    suggested_size = _recommended_image_size(size, image_size)
+    if suggested_size is not None and suggested_size < image_size:
+        return (
+            gr.update(value="", visible=False),
+            gr.update(interactive=True),
+            gr.update(
+                value=f"Reduce image size to {suggested_size}",
+                visible=True,
+            ),
+            suggested_size,
+        )
+
     if (
         input_type == "URL"
         and len(normalized_qr_text) >= 38
@@ -841,15 +853,33 @@ def _get_artistic_validation_state(
                 visible=True,
             ),
             gr.update(interactive=True),
-            gr.update(visible=False),
-            None,
+            (
+                gr.update(
+                    value=f"Reduce image size to {suggested_size}",
+                    visible=True,
+                )
+                if suggested_size is not None and suggested_size < image_size
+                else gr.update(visible=False)
+            ),
+            suggested_size
+            if suggested_size is not None and suggested_size < image_size
+            else None,
         )
 
     return (
         gr.update(value="", visible=False),
         gr.update(interactive=True),
-        gr.update(visible=False),
-        None,
+        (
+            gr.update(
+                value=f"Reduce image size to {suggested_size}",
+                visible=True,
+            )
+            if suggested_size is not None and suggested_size < image_size
+            else gr.update(visible=False)
+        ),
+        suggested_size
+        if suggested_size is not None and suggested_size < image_size
+        else None,
     )
 
 
@@ -906,6 +936,18 @@ def _get_standard_validation_state(
             suggested_size,
         )
 
+    suggested_size = _recommended_image_size(size, image_size)
+    if suggested_size is not None and suggested_size < image_size:
+        return (
+            gr.update(value="", visible=False),
+            gr.update(interactive=True),
+            gr.update(
+                value=f"Reduce image size to {suggested_size}",
+                visible=True,
+            ),
+            suggested_size,
+        )
+
     if (
         input_type == "URL"
         and len(normalized_qr_text) >= 38
@@ -920,15 +962,33 @@ def _get_standard_validation_state(
                 visible=True,
             ),
             gr.update(interactive=True),
-            gr.update(visible=False),
-            None,
+            (
+                gr.update(
+                    value=f"Reduce image size to {suggested_size}",
+                    visible=True,
+                )
+                if suggested_size is not None and suggested_size < image_size
+                else gr.update(visible=False)
+            ),
+            suggested_size
+            if suggested_size is not None and suggested_size < image_size
+            else None,
         )
 
     return (
         gr.update(value="", visible=False),
         gr.update(interactive=True),
-        gr.update(visible=False),
-        None,
+        (
+            gr.update(
+                value=f"Reduce image size to {suggested_size}",
+                visible=True,
+            )
+            if suggested_size is not None and suggested_size < image_size
+            else gr.update(visible=False)
+        ),
+        suggested_size
+        if suggested_size is not None and suggested_size < image_size
+        else None,
     )
 
 
