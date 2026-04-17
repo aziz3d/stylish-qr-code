@@ -774,6 +774,39 @@ def _recommended_image_size(required_size: int, current_size: int) -> int | None
     return None
 
 
+def _matches_example_settings(
+    qr_text: str,
+    input_type: str,
+    image_size: int,
+    border_size: int,
+    error_correction: str,
+    module_size: int,
+    examples,
+) -> bool:
+    for example in examples:
+        if isinstance(example, dict):
+            if (
+                example["text_input"] == qr_text
+                and example["input_type"] == input_type
+                and example["image_size"] == image_size
+                and example["border_size"] == border_size
+                and example["error_correction"] == error_correction
+                and example["module_size"] == module_size
+            ):
+                return True
+        else:
+            if (
+                example[1] == qr_text
+                and example[2] == input_type
+                and example[3] == image_size
+                and example[4] == border_size
+                and example[5] == error_correction
+                and example[6] == module_size
+            ):
+                return True
+    return False
+
+
 def _get_artistic_validation_state(
     qr_text: str,
     input_type: str,
@@ -783,6 +816,15 @@ def _get_artistic_validation_state(
     module_size: int,
 ):
     normalized_qr_text = _normalize_qr_text_for_validation(qr_text, input_type)
+    suppress_reduce = _matches_example_settings(
+        qr_text,
+        input_type,
+        image_size,
+        border_size,
+        error_correction,
+        module_size,
+        ARTISTIC_EXAMPLES,
+    )
     if not normalized_qr_text.strip():
         return (
             gr.update(value="", visible=False),
@@ -828,7 +870,11 @@ def _get_artistic_validation_state(
         )
 
     suggested_size = _recommended_image_size(size, image_size)
-    if suggested_size is not None and suggested_size < image_size:
+    if (
+        suggested_size is not None
+        and suggested_size < image_size
+        and not suppress_reduce
+    ):
         return (
             gr.update(value="", visible=False),
             gr.update(interactive=True),
@@ -858,11 +904,15 @@ def _get_artistic_validation_state(
                     value=f"Reduce image size to {suggested_size}",
                     visible=True,
                 )
-                if suggested_size is not None and suggested_size < image_size
+                if suggested_size is not None
+                and suggested_size < image_size
+                and not suppress_reduce
                 else gr.update(visible=False)
             ),
             suggested_size
-            if suggested_size is not None and suggested_size < image_size
+            if suggested_size is not None
+            and suggested_size < image_size
+            and not suppress_reduce
             else None,
         )
 
@@ -874,11 +924,15 @@ def _get_artistic_validation_state(
                 value=f"Reduce image size to {suggested_size}",
                 visible=True,
             )
-            if suggested_size is not None and suggested_size < image_size
+            if suggested_size is not None
+            and suggested_size < image_size
+            and not suppress_reduce
             else gr.update(visible=False)
         ),
         suggested_size
-        if suggested_size is not None and suggested_size < image_size
+        if suggested_size is not None
+        and suggested_size < image_size
+        and not suppress_reduce
         else None,
     )
 
@@ -892,6 +946,15 @@ def _get_standard_validation_state(
     module_size: int,
 ):
     normalized_qr_text = _normalize_qr_text_for_validation(qr_text, input_type)
+    suppress_reduce = _matches_example_settings(
+        qr_text,
+        input_type,
+        image_size,
+        border_size,
+        error_correction,
+        module_size,
+        STANDARD_EXAMPLES,
+    )
     if not normalized_qr_text.strip():
         return (
             gr.update(value="", visible=False),
@@ -937,7 +1000,11 @@ def _get_standard_validation_state(
         )
 
     suggested_size = _recommended_image_size(size, image_size)
-    if suggested_size is not None and suggested_size < image_size:
+    if (
+        suggested_size is not None
+        and suggested_size < image_size
+        and not suppress_reduce
+    ):
         return (
             gr.update(value="", visible=False),
             gr.update(interactive=True),
@@ -967,11 +1034,15 @@ def _get_standard_validation_state(
                     value=f"Reduce image size to {suggested_size}",
                     visible=True,
                 )
-                if suggested_size is not None and suggested_size < image_size
+                if suggested_size is not None
+                and suggested_size < image_size
+                and not suppress_reduce
                 else gr.update(visible=False)
             ),
             suggested_size
-            if suggested_size is not None and suggested_size < image_size
+            if suggested_size is not None
+            and suggested_size < image_size
+            and not suppress_reduce
             else None,
         )
 
@@ -983,11 +1054,15 @@ def _get_standard_validation_state(
                 value=f"Reduce image size to {suggested_size}",
                 visible=True,
             )
-            if suggested_size is not None and suggested_size < image_size
+            if suggested_size is not None
+            and suggested_size < image_size
+            and not suppress_reduce
             else gr.update(visible=False)
         ),
         suggested_size
-        if suggested_size is not None and suggested_size < image_size
+        if suggested_size is not None
+        and suggested_size < image_size
+        and not suppress_reduce
         else None,
     )
 
@@ -3970,6 +4045,109 @@ ARTISTIC_EXAMPLES = [
     },
 ]
 
+STANDARD_EXAMPLES = [
+    [
+        "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+        "https://www.google.com",
+        "URL",
+        512,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+    [
+        "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
+        "https://store.steampowered.com",
+        "URL",
+        512,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+    [
+        "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
+        "https://github.com",
+        "URL",
+        512,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+    [
+        "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
+        "https://twitter.com",
+        "URL",
+        512,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+    [
+        "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
+        "https://linkedin.com",
+        "URL",
+        512,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+    [
+        "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
+        "https://instagram.com",
+        "URL",
+        512,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+    [
+        "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
+        "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nORG:Acme Corporation\nTITLE:Software Engineer\nTEL:+1-555-123-4567\nEMAIL:john.doe@example.com\nEND:VCARD",
+        "Plain Text",
+        832,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+    [
+        "wifi network symbol, modern tech, digital art, glowing blue, detailed, 8k, ultra detailed",
+        "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
+        "Plain Text",
+        576,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+    [
+        "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
+        "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
+        "Plain Text",
+        832,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+    [
+        "location pin on map, travel destination, scenic view, detailed cartography, 8k, ultra detailed",
+        "geo:37.7749,-122.4194",
+        "Plain Text",
+        512,
+        4,
+        "Medium (15%)",
+        12,
+        "Square",
+    ],
+]
+
 # Start your Gradio app with automatic cache cleanup (at module level for hot reload)
 # delete_cache=(3600, 3600) means: check every hour and delete files older than 1 hour
 with gr.Blocks(delete_cache=(3600, 3600)) as demo:
@@ -5566,108 +5744,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
             )
 
             # Add examples
-            examples = [
-                [
-                    "some clothes spread on ropes, realistic, great details, out in the open air sunny day realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-                    "https://www.google.com",
-                    "URL",
-                    512,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-                [
-                    "some cards on poker tale, realistic, great details, realistic, great details,absence of people, Detailed and Intricate, CGI, Photoshoot,rim light, 8k, 16k, ultra detail",
-                    "https://store.steampowered.com",
-                    "URL",
-                    512,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-                [
-                    "a beautiful sunset over mountains, photorealistic, detailed landscape, golden hour, dramatic lighting, 8k, ultra detailed",
-                    "https://github.com",
-                    "URL",
-                    512,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-                [
-                    "underwater scene with coral reef and tropical fish, photorealistic, detailed, crystal clear water, sunlight rays, 8k, ultra detailed",
-                    "https://twitter.com",
-                    "URL",
-                    512,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-                [
-                    "futuristic cityscape with flying cars and neon lights, cyberpunk style, detailed architecture, night scene, 8k, ultra detailed",
-                    "https://linkedin.com",
-                    "URL",
-                    512,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-                [
-                    "vintage camera on wooden table, photorealistic, detailed textures, soft lighting, bokeh background, 8k, ultra detailed",
-                    "https://instagram.com",
-                    "URL",
-                    512,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-                [
-                    "business card design, professional, modern, clean layout, corporate style, detailed, 8k, ultra detailed",
-                    "BEGIN:VCARD\nVERSION:3.0\nFN:John Doe\nORG:Acme Corporation\nTITLE:Software Engineer\nTEL:+1-555-123-4567\nEMAIL:john.doe@example.com\nEND:VCARD",
-                    "Plain Text",
-                    832,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-                [
-                    "wifi network symbol, modern tech, digital art, glowing blue, detailed, 8k, ultra detailed",
-                    "WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;",
-                    "Plain Text",
-                    576,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-                [
-                    "calendar appointment reminder, organized planner, professional office, detailed, 8k, ultra detailed",
-                    "BEGIN:VEVENT\nSUMMARY:Team Meeting\nDTSTART:20251115T140000Z\nDTEND:20251115T150000Z\nLOCATION:Conference Room A\nEND:VEVENT",
-                    "Plain Text",
-                    832,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-                [
-                    "location pin on map, travel destination, scenic view, detailed cartography, 8k, ultra detailed",
-                    "geo:37.7749,-122.4194",
-                    "Plain Text",
-                    512,
-                    4,
-                    "Medium (15%)",
-                    12,
-                    "Square",
-                ],
-            ]
+            examples = STANDARD_EXAMPLES
 
             demo.load(
                 fn=_get_standard_validation_state,
