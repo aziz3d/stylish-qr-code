@@ -56,6 +56,32 @@ alter table public.analytics_download_events enable row level security;
 
 revoke all on table public.analytics_download_events from anon, authenticated;
 
+create table if not exists public.analytics_validation_events (
+  id uuid primary key default gen_random_uuid(),
+  generation_id text not null,
+  timestamp timestamptz not null default now(),
+  product text not null,
+  source text not null check (source in ('ui', 'mcp')),
+  pipeline text not null check (pipeline in ('standard', 'artistic')),
+  tool_name text not null,
+  analytics_opt_in boolean not null default false,
+  error_bucket text not null,
+  error_message_excerpt text,
+  error_message_hash text,
+  anonymous_id text not null,
+  prompt_full text,
+  qr_payload_full text,
+  settings_full jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists analytics_validation_events_source_pipeline_idx
+  on public.analytics_validation_events (source, pipeline, timestamp desc);
+
+alter table public.analytics_validation_events enable row level security;
+
+revoke all on table public.analytics_validation_events from anon, authenticated;
+
 create or replace view public.analytics_generation_outcomes as
 select
   g.generation_id,
