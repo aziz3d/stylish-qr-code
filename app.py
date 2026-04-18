@@ -5036,6 +5036,24 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 outputs=[import_json_input_artistic, import_status_artistic],
             )
 
+            load_settings_btn_artistic.click(
+                fn=_get_artistic_validation_state,
+                inputs=[
+                    artistic_text_input,
+                    artistic_input_type,
+                    artistic_image_size,
+                    artistic_border_size,
+                    artistic_error_correction,
+                    artistic_module_size,
+                ],
+                outputs=[
+                    artistic_validation_message,
+                    artistic_generate_btn,
+                    artistic_autofix_btn,
+                    artistic_recommended_image_size,
+                ],
+            )
+
             # Seed slider visibility toggle for artistic tab
             artistic_use_custom_seed.change(
                 fn=lambda x: gr.update(visible=x),
