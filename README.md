@@ -26,6 +26,14 @@ The Space includes an optional analytics consent toggle for both UI and MCP usag
 - Full prompts, QR payload text, and settings are only stored when analytics opt-in is enabled.
 - Minimal operational events can still be logged for reliability and product metrics.
 
+## URL normalization
+
+When `Input Type` is set to `URL`, the app normalizes links on CPU before any GPU work starts.
+
+- Common tracking params such as `utm_*`, `fbclid`, and `gclid` are removed automatically.
+- Scheme and host casing are normalized to reduce unnecessary QR payload length.
+- Plain text payloads are left untouched.
+
 ### Required Space secrets
 
 - `SUPABASE_URL`

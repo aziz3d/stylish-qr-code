@@ -8,6 +8,7 @@ import hashlib
 import uuid
 from datetime import datetime, timezone
 from urllib import error as urllib_error
+from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 
 # Force unbuffered output for real-time logging
@@ -65,6 +66,29 @@ POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com").rstrip("/")
 POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "") or os.getenv(
     "POSTHOG_SECRET_KEY", ""
 )
+
+URL_TRACKING_PARAM_PREFIXES = (
+    "utm_",
+    "mc_",
+    "mkt_",
+    "pk_",
+)
+URL_TRACKING_PARAM_NAMES = {
+    "fbclid",
+    "gclid",
+    "dclid",
+    "gbraid",
+    "wbraid",
+    "msclkid",
+    "igshid",
+    "mibextid",
+    "s_cid",
+    "si",
+    "vero_conv",
+    "vero_id",
+    "wickedid",
+    "yclid",
+}
 
 
 def _utc_now_iso() -> str:
@@ -146,6 +170,146 @@ def _truncate_error_message(message: str, limit: int = 300) -> str:
     if len(message) <= limit:
         return message
     return message[: limit - 3] + "..."
+
+
+def _should_strip_tracking_param(name: str) -> bool:
+    lowered = (name or "").strip().lower()
+    if not lowered:
+        return False
+    if lowered in URL_TRACKING_PARAM_NAMES:
+        return True
+    return lowered.startswith(URL_TRACKING_PARAM_PREFIXES)
+
+
+def _normalize_url_for_qr(text_input: str) -> Mapping[str, Any]:
+    raw_input = str(text_input or "")
+    stripped_input = raw_input.strip()
+    result = {
+        "original_input": raw_input,
+        "normalized_url": stripped_input,
+        "normalized_qr_text": stripped_input,
+        "tracking_params_removed": 0,
+        "chars_saved": max(0, len(raw_input) - len(stripped_input)),
+        "changed": stripped_input != raw_input,
+    }
+    if not stripped_input:
+        return result
+
+    parse_target = stripped_input
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", parse_target):
+        parse_target = f"https://{parse_target.lstrip('/')}"
+
+    parsed = urllib_parse.urlsplit(parse_target)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return result
+
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        return result
+
+    port = parsed.port
+    netloc = hostname
+    if parsed.username:
+        auth = parsed.username
+        if parsed.password:
+            auth = f"{auth}:{parsed.password}"
+        netloc = f"{auth}@{netloc}"
+    if port and not (
+        (parsed.scheme.lower() == "http" and port == 80)
+        or (parsed.scheme.lower() == "https" and port == 443)
+    ):
+        netloc = f"{netloc}:{port}"
+
+    filtered_query = []
+    tracking_params_removed = 0
+    for key, value in urllib_parse.parse_qsl(parsed.query, keep_blank_values=True):
+        if _should_strip_tracking_param(key):
+            tracking_params_removed += 1
+            continue
+        filtered_query.append((key, value))
+
+    normalized_path = parsed.path or ""
+    if normalized_path == "/":
+        normalized_path = ""
+
+    normalized_url = urllib_parse.urlunsplit(
+        (
+            "https",
+            netloc,
+            normalized_path,
+            urllib_parse.urlencode(filtered_query, doseq=True),
+            parsed.fragment,
+        )
+    )
+    normalized_qr_text = normalized_url.replace("https://", "", 1)
+    chars_saved = max(0, len(raw_input) - len(normalized_url))
+
+    return {
+        "original_input": raw_input,
+        "normalized_url": normalized_url,
+        "normalized_qr_text": normalized_qr_text,
+        "tracking_params_removed": tracking_params_removed,
+        "chars_saved": chars_saved,
+        "changed": normalized_url != raw_input,
+    }
+
+
+def _build_url_normalization_note(
+    normalization: Mapping[str, Any] | None,
+) -> str | None:
+    if not normalization or not normalization.get("changed"):
+        return None
+
+    details = []
+    tracking_params_removed = int(normalization.get("tracking_params_removed") or 0)
+    chars_saved = int(normalization.get("chars_saved") or 0)
+    if tracking_params_removed:
+        suffix = "s" if tracking_params_removed != 1 else ""
+        details.append(f"removed {tracking_params_removed} tracking param{suffix}")
+    if chars_saved:
+        suffix = "s" if chars_saved != 1 else ""
+        details.append(f"saved {chars_saved} character{suffix}")
+    if not details:
+        details.append("normalized spacing and host casing")
+
+    return (
+        "URL normalized before QR generation: "
+        + ", ".join(details)
+        + f". Using {normalization.get('normalized_url', '')}"
+    )
+
+
+def _append_status_note(status: str | None, note: str | None) -> str | None:
+    if not note:
+        return status
+    if not status:
+        return note
+    return f"{status}\n\n{note}"
+
+
+def _build_url_analytics_fields(
+    text_input: str, settings: Mapping[str, Any]
+) -> Mapping[str, Any]:
+    input_type = str(settings.get("input_type") or "")
+    effective_qr_text = str(settings.get("effective_qr_text") or text_input or "")
+    if input_type != "URL":
+        return {
+            "original_qr_payload_length": None,
+            "effective_qr_payload_length": None,
+            "url_normalization_applied": False,
+            "url_tracking_params_removed": 0,
+            "url_chars_saved": 0,
+        }
+
+    return {
+        "original_qr_payload_length": len(str(text_input or "")),
+        "effective_qr_payload_length": len(effective_qr_text),
+        "url_normalization_applied": bool(settings.get("url_normalization_applied")),
+        "url_tracking_params_removed": int(
+            settings.get("url_tracking_params_removed") or 0
+        ),
+        "url_chars_saved": int(settings.get("url_chars_saved") or 0),
+    }
 
 
 def _format_exception_message(exc: Exception) -> str:
@@ -234,6 +398,36 @@ def _record_generation_event(payload: Mapping[str, Any]) -> None:
             "error_message_hash": payload.get("error_message_hash"),
             "generation_id": payload.get("generation_id"),
             "anonymous_id": payload.get("anonymous_id"),
+            "original_qr_payload_length": payload.get("original_qr_payload_length"),
+            "effective_qr_payload_length": payload.get("effective_qr_payload_length"),
+            "url_normalization_applied": payload.get("url_normalization_applied"),
+            "url_tracking_params_removed": payload.get("url_tracking_params_removed"),
+            "url_chars_saved": payload.get("url_chars_saved"),
+        },
+    )
+
+
+def _record_validation_event(payload: Mapping[str, Any]) -> None:
+    _emit_analytics_log("validation", payload)
+    _queue_background_work(_write_supabase_row, SUPABASE_VALIDATION_TABLE, payload)
+    _queue_background_work(
+        _capture_posthog_event,
+        "validation_blocked",
+        {
+            "product": "ai_qr_generator",
+            "source": payload.get("source"),
+            "pipeline": payload.get("pipeline"),
+            "tool_name": payload.get("tool_name"),
+            "analytics_opt_in": payload.get("analytics_opt_in"),
+            "error_bucket": payload.get("error_bucket"),
+            "error_message_hash": payload.get("error_message_hash"),
+            "generation_id": payload.get("generation_id"),
+            "anonymous_id": payload.get("anonymous_id"),
+            "original_qr_payload_length": payload.get("original_qr_payload_length"),
+            "effective_qr_payload_length": payload.get("effective_qr_payload_length"),
+            "url_normalization_applied": payload.get("url_normalization_applied"),
+            "url_tracking_params_removed": payload.get("url_tracking_params_removed"),
+            "url_chars_saved": payload.get("url_chars_saved"),
         },
     )
 
@@ -294,6 +488,7 @@ def _build_generation_payload(
     error_bucket = (
         "none" if status == "success" else _classify_error_bucket(error_message)
     )
+    url_fields = _build_url_analytics_fields(text_input, settings)
     payload = {
         "generation_id": generation_id,
         "timestamp": _utc_now_iso(),
@@ -305,6 +500,7 @@ def _build_generation_payload(
         "status": "success" if status == "success" else "error",
         "error_bucket": error_bucket,
         "anonymous_id": _build_anon_id(request, source, fallback=generation_id),
+        **url_fields,
     }
     if error_message:
         payload = {
@@ -372,6 +568,7 @@ def _build_validation_payload(
     request: Any,
 ) -> Mapping[str, Any]:
     error_message = _normalize_error_message(status)
+    url_fields = _build_url_analytics_fields(text_input, settings)
     payload = {
         "generation_id": generation_id,
         "timestamp": _utc_now_iso(),
@@ -386,6 +583,7 @@ def _build_validation_payload(
         "error_message_hash": hashlib.sha256(error_message.encode("utf-8")).hexdigest()[
             :16
         ],
+        **url_fields,
     }
     if analytics_opt_in:
         payload = {
@@ -763,7 +961,7 @@ def log_progress(message, gr_progress=None, progress_value=None):
 
 def _normalize_qr_text_for_validation(qr_text: str, input_type: str) -> str:
     if input_type == "URL":
-        return qr_text.replace("https://", "").replace("http://", "")
+        return str(_normalize_url_for_qr(qr_text).get("normalized_qr_text", "")).strip()
     return qr_text
 
 
@@ -1564,13 +1762,8 @@ def generate_qr_code_unified(
         f"[GPU TIMING] Started generation: pipeline={pipeline}, image_size={image_size}, animation={enable_animation}, upscale={enable_upscale}"
     )
 
-    # Only manipulate the text if it's a URL input type
-    qr_text = text_input
-    if input_type == "URL":
-        if "https://" in qr_text:
-            qr_text = qr_text.replace("https://", "")
-        if "http://" in qr_text:
-            qr_text = qr_text.replace("http://", "")
+    # URL inputs are normalized on CPU before any GPU work begins.
+    qr_text = _normalize_qr_text_for_validation(text_input, input_type)
 
     # Use custom seed or random
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
@@ -2155,6 +2348,15 @@ def generate_standard_qr(
     generation_id = str(uuid.uuid4())
     analytics_opt_in = _normalize_bool(analytics_opt_in)
     source = _detect_source(request)
+    url_normalization = (
+        _normalize_url_for_qr(text_input) if input_type == "URL" else None
+    )
+    qr_text_input = (
+        str(url_normalization.get("normalized_qr_text", text_input))
+        if url_normalization is not None
+        else text_input
+    )
+    url_normalization_note = _build_url_normalization_note(url_normalization)
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
@@ -2164,6 +2366,7 @@ def generate_standard_qr(
         "prompt": prompt,
         "negative_prompt": negative_prompt,
         "text_input": text_input,
+        "effective_qr_text": qr_text_input,
         "input_type": input_type,
         "image_size": image_size,
         "border_size": border_size,
@@ -2185,14 +2388,19 @@ def generate_standard_qr(
         "apply_gradient_filter": apply_gradient_filter,
         "gradient_strength": gradient_strength,
         "variation_steps": variation_steps,
+        "url_normalization_applied": bool(
+            url_normalization and url_normalization.get("changed")
+        ),
+        "url_tracking_params_removed": int(
+            (url_normalization or {}).get("tracking_params_removed") or 0
+        ),
+        "url_chars_saved": int((url_normalization or {}).get("chars_saved") or 0),
     }
     settings_json = generate_settings_json(settings_dict)
 
     try:
         _validate_qr_dimensions(
-            qr_text=text_input.replace("https://", "").replace("http://", "")
-            if input_type == "URL"
-            else text_input,
+            qr_text=qr_text_input,
             input_type=input_type,
             image_size=image_size,
             border_size=border_size,
@@ -2231,7 +2439,7 @@ def generate_standard_qr(
     generator = generate_qr_code_unified(
         prompt,
         negative_prompt,
-        text_input,
+        qr_text_input,
         input_type,
         image_size,
         border_size,
@@ -2267,7 +2475,7 @@ def generate_standard_qr(
             # Show progressive updates but don't show accordion or export buttons yet
             yield (
                 image,
-                status,
+                _append_status_note(status, url_normalization_note),
                 gr.update(),
                 gr.update(),
                 gr.update(visible=False),
@@ -2295,7 +2503,7 @@ def generate_standard_qr(
             )
         yield (
             final_image,
-            final_status,
+            _append_status_note(final_status, url_normalization_note),
             gr.update(value=settings_json),
             gr.update(visible=True),
             gr.update(visible=True),
@@ -2320,7 +2528,7 @@ def generate_standard_qr(
             raise RuntimeError(final_status)
         yield (
             None,
-            final_status,
+            _append_status_note(final_status, url_normalization_note),
             gr.update(),
             gr.update(),
             gr.update(visible=False),
@@ -2381,6 +2589,15 @@ def generate_artistic_qr(
     generation_id = str(uuid.uuid4())
     analytics_opt_in = _normalize_bool(analytics_opt_in)
     source = _detect_source(request)
+    url_normalization = (
+        _normalize_url_for_qr(text_input) if input_type == "URL" else None
+    )
+    qr_text_input = (
+        str(url_normalization.get("normalized_qr_text", text_input))
+        if url_normalization is not None
+        else text_input
+    )
+    url_normalization_note = _build_url_normalization_note(url_normalization)
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
@@ -2390,6 +2607,7 @@ def generate_artistic_qr(
         "prompt": prompt,
         "negative_prompt": negative_prompt,
         "text_input": text_input,
+        "effective_qr_text": qr_text_input,
         "input_type": input_type,
         "image_size": image_size,
         "border_size": border_size,
@@ -2419,14 +2637,19 @@ def generate_artistic_qr(
         "apply_gradient_filter": apply_gradient_filter,
         "gradient_strength": gradient_strength,
         "variation_steps": variation_steps,
+        "url_normalization_applied": bool(
+            url_normalization and url_normalization.get("changed")
+        ),
+        "url_tracking_params_removed": int(
+            (url_normalization or {}).get("tracking_params_removed") or 0
+        ),
+        "url_chars_saved": int((url_normalization or {}).get("chars_saved") or 0),
     }
     settings_json = generate_settings_json(settings_dict)
 
     try:
         _validate_qr_dimensions(
-            qr_text=text_input.replace("https://", "").replace("http://", "")
-            if input_type == "URL"
-            else text_input,
+            qr_text=qr_text_input,
             input_type=input_type,
             image_size=image_size,
             border_size=border_size,
@@ -2467,7 +2690,7 @@ def generate_artistic_qr(
     generator = generate_qr_code_unified(
         prompt,
         negative_prompt,
-        text_input,
+        qr_text_input,
         input_type,
         image_size,
         border_size,
@@ -2522,7 +2745,7 @@ def generate_artistic_qr(
             if first_yield:
                 yield (
                     gr.update(visible=True, value=image),
-                    status,
+                    _append_status_note(status, url_normalization_note),
                     gr.update(),
                     gr.update(),
                     gr.update(visible=False),
@@ -2533,7 +2756,7 @@ def generate_artistic_qr(
             else:
                 yield (
                     image,
-                    status,
+                    _append_status_note(status, url_normalization_note),
                     gr.update(),
                     gr.update(),
                     gr.update(visible=False),
@@ -2563,7 +2786,7 @@ def generate_artistic_qr(
             )
         yield (
             final_image,
-            final_status,
+            _append_status_note(final_status, url_normalization_note),
             gr.update(value=settings_json),
             gr.update(visible=True),
             gr.update(visible=False),
@@ -2590,7 +2813,7 @@ def generate_artistic_qr(
             raise RuntimeError(final_status)
         yield (
             None,
-            final_status,
+            _append_status_note(final_status, url_normalization_note),
             gr.update(),
             gr.update(),
             gr.update(visible=False),
@@ -4304,6 +4527,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         placeholder="Enter URL or plain text",
                         value="https://github.com",
                         lines=3,
+                        info="URL mode automatically removes common tracking params like utm_*, fbclid, and gclid before QR generation.",
                     )
 
                     # Import Settings section - separate accordion
@@ -5316,6 +5540,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         placeholder="Enter URL or plain text",
                         value="https://www.google.com",
                         lines=3,
+                        info="URL mode automatically removes common tracking params like utm_*, fbclid, and gclid before QR generation.",
                     )
 
                     # Import Settings section - separate accordion

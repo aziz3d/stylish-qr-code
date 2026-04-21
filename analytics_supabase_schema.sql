@@ -14,6 +14,11 @@ create table if not exists public.analytics_generation_events (
   error_message_excerpt text,
   error_message_hash text,
   anonymous_id text not null,
+  original_qr_payload_length integer,
+  effective_qr_payload_length integer,
+  url_normalization_applied boolean not null default false,
+  url_tracking_params_removed integer not null default 0,
+  url_chars_saved integer not null default 0,
   prompt_full text,
   qr_payload_full text,
   settings_full jsonb,
@@ -69,6 +74,11 @@ create table if not exists public.analytics_validation_events (
   error_message_excerpt text,
   error_message_hash text,
   anonymous_id text not null,
+  original_qr_payload_length integer,
+  effective_qr_payload_length integer,
+  url_normalization_applied boolean not null default false,
+  url_tracking_params_removed integer not null default 0,
+  url_chars_saved integer not null default 0,
   prompt_full text,
   qr_payload_full text,
   settings_full jsonb,
@@ -82,6 +92,19 @@ alter table public.analytics_validation_events enable row level security;
 
 revoke all on table public.analytics_validation_events from anon, authenticated;
 
+alter table public.analytics_generation_events
+  add column if not exists original_qr_payload_length integer,
+  add column if not exists effective_qr_payload_length integer,
+  add column if not exists url_normalization_applied boolean not null default false,
+  add column if not exists url_tracking_params_removed integer not null default 0,
+  add column if not exists url_chars_saved integer not null default 0;
+
+alter table public.analytics_validation_events
+  add column if not exists original_qr_payload_length integer,
+  add column if not exists effective_qr_payload_length integer,
+  add column if not exists url_normalization_applied boolean not null default false,
+  add column if not exists url_tracking_params_removed integer not null default 0,
+  add column if not exists url_chars_saved integer not null default 0;
 create or replace view public.analytics_generation_outcomes as
 select
   g.generation_id,
