@@ -4630,13 +4630,16 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
         - Register a Hugging Face account for more generations
         - Subscribe to PRO for even more generations
 
-        **Tip:** Short URLs scan and generate more reliably. If your link is longer than ~38 characters, use an image size above 704 for better results.
+        **Tip:** URL shortener is the best way to keep QR codes scannable without burning extra GPU quota on larger image sizes. If your link is longer than ~10 characters, consider enabling the URL shortener. If you keep the original URL and it grows beyond ~38 characters, use an image size above 704 for better results.
 
         Choose a tab below to get started!
         """)
 
     gr.Markdown(
         "Note: You can opt in to help improve the product by sharing anonymous usage data. Generated images are not used for analytics and are automatically deleted after 1 hour."
+    )
+    gr.Markdown(
+        "Note: You can also opt in to a temporary `qrcut.co` URL shortener when using URL mode. This is usually the best way to get cleaner QR codes for longer links. Short links expire if nobody opens the QR code for 7 days."
     )
     analytics_opt_in_global = gr.Checkbox(
         label="Share anonymous usage data to improve QR quality",
@@ -4707,9 +4710,9 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         info="URL mode automatically removes common tracking params like utm_*, fbclid, and gclid before QR generation.",
                     )
                     artistic_use_temporary_short_link = gr.Checkbox(
-                        label="Use temporary short link",
+                        label="Use URL shortener",
                         value=False,
-                        info="URL mode only. Encodes a qrcut.co short link that expires after 7 days of inactivity.",
+                        info="URL mode only. Best option for longer links when you want cleaner QR codes without raising image size too much. The short link expires if nobody opens the QR code for 7 days.",
                     )
 
                     # Import Settings section - separate accordion
@@ -5727,9 +5730,9 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         info="URL mode automatically removes common tracking params like utm_*, fbclid, and gclid before QR generation.",
                     )
                     use_temporary_short_link = gr.Checkbox(
-                        label="Use temporary short link",
+                        label="Use URL shortener",
                         value=False,
-                        info="URL mode only. Encodes a qrcut.co short link that expires after 7 days of inactivity.",
+                        info="URL mode only. Best option for longer links when you want cleaner QR codes without raising image size too much. The short link expires if nobody opens the QR code for 7 days.",
                     )
 
                     # Import Settings section - separate accordion
