@@ -34,6 +34,14 @@ When `Input Type` is set to `URL`, the app normalizes links on CPU before any GP
 - Scheme and host casing are normalized to reduce unnecessary QR payload length.
 - Plain text payloads are left untouched.
 
+## Temporary short links
+
+When enabled in the UI, URL mode can replace the QR payload with a `qrcut.co` short link.
+
+- The shortener is opt-in and defaults to off.
+- Short links expire after 7 days of inactivity.
+- If the shortener is unavailable, generation falls back to the normalized original URL.
+
 ### Required Space secrets
 
 - `SUPABASE_URL`
@@ -42,6 +50,10 @@ When `Input Type` is set to `URL`, the app normalizes links on CPU before any GP
 - `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`)
 - `ANALYTICS_ENABLED` (optional, defaults to `true`)
 - `ANALYTICS_DEFAULT_OPT_IN` (optional, defaults to `false`)
+- `URL_SHORTENER_API_URL` (optional, for example `https://qrcut.co/shorten`)
+- `URL_SHORTENER_API_KEY` (optional, private API key for the HF Space)
+- `URL_SHORTENER_SOURCE_APP` (optional, defaults to `ai_qr_generator`)
+- `URL_SHORTENER_TIMEOUT_SECONDS` (optional, defaults to `10`)
 
 ### Supabase schema
 

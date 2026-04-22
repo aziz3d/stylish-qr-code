@@ -66,6 +66,10 @@ POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com").rstrip("/")
 POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "") or os.getenv(
     "POSTHOG_SECRET_KEY", ""
 )
+URL_SHORTENER_API_URL = os.getenv("URL_SHORTENER_API_URL", "").rstrip("/")
+URL_SHORTENER_API_KEY = os.getenv("URL_SHORTENER_API_KEY", "")
+URL_SHORTENER_SOURCE_APP = os.getenv("URL_SHORTENER_SOURCE_APP", "ai_qr_generator")
+URL_SHORTENER_TIMEOUT_SECONDS = float(os.getenv("URL_SHORTENER_TIMEOUT_SECONDS", "10"))
 
 URL_TRACKING_PARAM_PREFIXES = (
     "utm_",
@@ -285,6 +289,98 @@ def _append_status_note(status: str | None, note: str | None) -> str | None:
     if not status:
         return note
     return f"{status}\n\n{note}"
+
+
+def _build_shortener_note(shortener_result: Mapping[str, Any] | None) -> str | None:
+    if not shortener_result:
+        return None
+    if shortener_result.get("applied"):
+        short_url = str(shortener_result.get("short_url") or "").strip()
+        expires_at = str(shortener_result.get("expires_at") or "").strip()
+        suffix = ""
+        if shortener_result.get("reactivated"):
+            suffix = " Existing short link reactivated."
+        elif shortener_result.get("existed"):
+            suffix = " Existing short link reused."
+        if expires_at:
+            return (
+                f"Temporary short link enabled: using {short_url}. "
+                f"Expires after 7 days of inactivity and is currently active until {expires_at}.{suffix}"
+            )
+        return (
+            f"Temporary short link enabled: using {short_url}. "
+            f"Expires after 7 days of inactivity.{suffix}"
+        )
+
+    error_message = str(shortener_result.get("error") or "").strip()
+    if error_message:
+        return f"Temporary short link unavailable: {error_message} Using normalized URL instead."
+    return None
+
+
+def _maybe_shorten_url_for_qr(
+    *,
+    original_input: str,
+    input_type: str,
+    use_temporary_short_link: bool,
+) -> Mapping[str, Any]:
+    fallback_qr_text = _normalize_qr_text_for_validation(original_input, input_type)
+    result = {
+        "applied": False,
+        "effective_qr_text": fallback_qr_text,
+        "short_url": None,
+        "expires_at": None,
+        "existed": False,
+        "reactivated": False,
+        "error": None,
+    }
+    if input_type != "URL" or not _normalize_bool(use_temporary_short_link):
+        return result
+    if not URL_SHORTENER_API_URL or not URL_SHORTENER_API_KEY:
+        return {
+            **result,
+            "error": "shortener is not configured on the server",
+        }
+
+    request_body = json.dumps({"url": str(original_input or "")}).encode("utf-8")
+    request_headers = {
+        "Content-Type": "application/json",
+        "X-API-Key": URL_SHORTENER_API_KEY,
+        "X-Source-App": URL_SHORTENER_SOURCE_APP,
+    }
+    try:
+        request_obj = urllib_request.Request(
+            URL_SHORTENER_API_URL,
+            data=request_body,
+            headers=request_headers,
+            method="POST",
+        )
+        with urllib_request.urlopen(
+            request_obj, timeout=URL_SHORTENER_TIMEOUT_SECONDS
+        ) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        short_url = str(payload.get("short_url") or "").strip()
+        if not short_url:
+            raise ValueError("shortener returned an empty short URL")
+        return {
+            "applied": True,
+            "effective_qr_text": _normalize_qr_text_for_validation(short_url, "URL"),
+            "short_url": short_url,
+            "expires_at": payload.get("expires_at"),
+            "existed": bool(payload.get("existed")),
+            "reactivated": bool(payload.get("reactivated")),
+            "error": None,
+        }
+    except (
+        urllib_error.URLError,
+        urllib_error.HTTPError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        return {
+            **result,
+            "error": str(exc),
+        }
 
 
 def _build_url_analytics_fields(
@@ -2316,6 +2412,7 @@ def generate_standard_qr(
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
     text_input: str = "",
     input_type: str = "URL",
+    use_temporary_short_link: bool = False,
     image_size: int = 512,
     border_size: int = 4,
     error_correction: str = "Medium (15%)",
@@ -2357,6 +2454,26 @@ def generate_standard_qr(
         else text_input
     )
     url_normalization_note = _build_url_normalization_note(url_normalization)
+    shortener_result = _maybe_shorten_url_for_qr(
+        original_input=text_input,
+        input_type=input_type,
+        use_temporary_short_link=use_temporary_short_link,
+    )
+    qr_text_input = str(shortener_result.get("effective_qr_text") or qr_text_input)
+    normalization_applied_for_qr = bool(
+        url_normalization
+        and url_normalization.get("changed")
+        and not shortener_result.get("applied")
+    )
+    normalization_tracking_params_removed = int(
+        (url_normalization or {}).get("tracking_params_removed") or 0
+    )
+    normalization_chars_saved = int((url_normalization or {}).get("chars_saved") or 0)
+    if shortener_result.get("applied"):
+        normalization_tracking_params_removed = 0
+        normalization_chars_saved = 0
+        url_normalization_note = None
+    shortener_note = _build_shortener_note(shortener_result)
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
@@ -2367,6 +2484,11 @@ def generate_standard_qr(
         "negative_prompt": negative_prompt,
         "text_input": text_input,
         "effective_qr_text": qr_text_input,
+        "use_temporary_short_link": _normalize_bool(use_temporary_short_link),
+        "shortener_applied": bool(shortener_result.get("applied")),
+        "short_url": shortener_result.get("short_url"),
+        "shortener_expires_at": shortener_result.get("expires_at"),
+        "shortener_error": shortener_result.get("error"),
         "input_type": input_type,
         "image_size": image_size,
         "border_size": border_size,
@@ -2388,13 +2510,9 @@ def generate_standard_qr(
         "apply_gradient_filter": apply_gradient_filter,
         "gradient_strength": gradient_strength,
         "variation_steps": variation_steps,
-        "url_normalization_applied": bool(
-            url_normalization and url_normalization.get("changed")
-        ),
-        "url_tracking_params_removed": int(
-            (url_normalization or {}).get("tracking_params_removed") or 0
-        ),
-        "url_chars_saved": int((url_normalization or {}).get("chars_saved") or 0),
+        "url_normalization_applied": normalization_applied_for_qr,
+        "url_tracking_params_removed": normalization_tracking_params_removed,
+        "url_chars_saved": normalization_chars_saved,
     }
     settings_json = generate_settings_json(settings_dict)
 
@@ -2428,7 +2546,10 @@ def generate_standard_qr(
             raise RuntimeError(final_status)
         yield (
             None,
-            final_status,
+            _append_status_note(
+                _append_status_note(final_status, url_normalization_note),
+                shortener_note,
+            ),
             gr.update(),
             gr.update(),
             gr.update(visible=False),
@@ -2475,7 +2596,10 @@ def generate_standard_qr(
             # Show progressive updates but don't show accordion or export buttons yet
             yield (
                 image,
-                _append_status_note(status, url_normalization_note),
+                _append_status_note(
+                    _append_status_note(status, url_normalization_note),
+                    shortener_note,
+                ),
                 gr.update(),
                 gr.update(),
                 gr.update(visible=False),
@@ -2503,7 +2627,10 @@ def generate_standard_qr(
             )
         yield (
             final_image,
-            _append_status_note(final_status, url_normalization_note),
+            _append_status_note(
+                _append_status_note(final_status, url_normalization_note),
+                shortener_note,
+            ),
             gr.update(value=settings_json),
             gr.update(visible=True),
             gr.update(visible=True),
@@ -2528,7 +2655,10 @@ def generate_standard_qr(
             raise RuntimeError(final_status)
         yield (
             None,
-            _append_status_note(final_status, url_normalization_note),
+            _append_status_note(
+                _append_status_note(final_status, url_normalization_note),
+                shortener_note,
+            ),
             gr.update(),
             gr.update(),
             gr.update(visible=False),
@@ -2540,6 +2670,7 @@ def generate_artistic_qr(
     negative_prompt: str = "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft, closed eyes, text, logo",
     text_input: str = "",
     input_type: str = "URL",
+    use_temporary_short_link: bool = False,
     image_size: int = 512,
     border_size: int = 4,
     error_correction: str = "Medium (15%)",
@@ -2598,6 +2729,26 @@ def generate_artistic_qr(
         else text_input
     )
     url_normalization_note = _build_url_normalization_note(url_normalization)
+    shortener_result = _maybe_shorten_url_for_qr(
+        original_input=text_input,
+        input_type=input_type,
+        use_temporary_short_link=use_temporary_short_link,
+    )
+    qr_text_input = str(shortener_result.get("effective_qr_text") or qr_text_input)
+    normalization_applied_for_qr = bool(
+        url_normalization
+        and url_normalization.get("changed")
+        and not shortener_result.get("applied")
+    )
+    normalization_tracking_params_removed = int(
+        (url_normalization or {}).get("tracking_params_removed") or 0
+    )
+    normalization_chars_saved = int((url_normalization or {}).get("chars_saved") or 0)
+    if shortener_result.get("applied"):
+        normalization_tracking_params_removed = 0
+        normalization_chars_saved = 0
+        url_normalization_note = None
+    shortener_note = _build_shortener_note(shortener_result)
     # Get actual seed used (custom or random)
     actual_seed = seed if use_custom_seed else random.randint(1, 2**32 - 1)
 
@@ -2608,6 +2759,11 @@ def generate_artistic_qr(
         "negative_prompt": negative_prompt,
         "text_input": text_input,
         "effective_qr_text": qr_text_input,
+        "use_temporary_short_link": _normalize_bool(use_temporary_short_link),
+        "shortener_applied": bool(shortener_result.get("applied")),
+        "short_url": shortener_result.get("short_url"),
+        "shortener_expires_at": shortener_result.get("expires_at"),
+        "shortener_error": shortener_result.get("error"),
         "input_type": input_type,
         "image_size": image_size,
         "border_size": border_size,
@@ -2637,13 +2793,9 @@ def generate_artistic_qr(
         "apply_gradient_filter": apply_gradient_filter,
         "gradient_strength": gradient_strength,
         "variation_steps": variation_steps,
-        "url_normalization_applied": bool(
-            url_normalization and url_normalization.get("changed")
-        ),
-        "url_tracking_params_removed": int(
-            (url_normalization or {}).get("tracking_params_removed") or 0
-        ),
-        "url_chars_saved": int((url_normalization or {}).get("chars_saved") or 0),
+        "url_normalization_applied": normalization_applied_for_qr,
+        "url_tracking_params_removed": normalization_tracking_params_removed,
+        "url_chars_saved": normalization_chars_saved,
     }
     settings_json = generate_settings_json(settings_dict)
 
@@ -2677,7 +2829,10 @@ def generate_artistic_qr(
             raise RuntimeError(final_status)
         yield (
             None,
-            final_status,
+            _append_status_note(
+                _append_status_note(final_status, url_normalization_note),
+                shortener_note,
+            ),
             gr.update(),
             gr.update(),
             gr.update(visible=False),
@@ -2745,7 +2900,10 @@ def generate_artistic_qr(
             if first_yield:
                 yield (
                     gr.update(visible=True, value=image),
-                    _append_status_note(status, url_normalization_note),
+                    _append_status_note(
+                        _append_status_note(status, url_normalization_note),
+                        shortener_note,
+                    ),
                     gr.update(),
                     gr.update(),
                     gr.update(visible=False),
@@ -2756,7 +2914,10 @@ def generate_artistic_qr(
             else:
                 yield (
                     image,
-                    _append_status_note(status, url_normalization_note),
+                    _append_status_note(
+                        _append_status_note(status, url_normalization_note),
+                        shortener_note,
+                    ),
                     gr.update(),
                     gr.update(),
                     gr.update(visible=False),
@@ -2786,7 +2947,10 @@ def generate_artistic_qr(
             )
         yield (
             final_image,
-            _append_status_note(final_status, url_normalization_note),
+            _append_status_note(
+                _append_status_note(final_status, url_normalization_note),
+                shortener_note,
+            ),
             gr.update(value=settings_json),
             gr.update(visible=True),
             gr.update(visible=False),
@@ -2813,7 +2977,10 @@ def generate_artistic_qr(
             raise RuntimeError(final_status)
         yield (
             None,
-            _append_status_note(final_status, url_normalization_note),
+            _append_status_note(
+                _append_status_note(final_status, url_normalization_note),
+                shortener_note,
+            ),
             gr.update(),
             gr.update(),
             gr.update(visible=False),
@@ -2887,6 +3054,7 @@ def load_settings_from_json_standard(json_string: str):
                 gr.update(),
                 gr.update(),
                 gr.update(),
+                gr.update(),
                 gr.update(value=error_msg, visible=True),
             )
 
@@ -2898,6 +3066,7 @@ def load_settings_from_json_standard(json_string: str):
         )
         text_input = params.get("text_input", "")
         input_type = params.get("input_type", "URL")
+        use_temporary_short_link = params.get("use_temporary_short_link", False)
         image_size = params.get("image_size", 512)
         border_size = params.get("border_size", 4)
         error_correction = params.get("error_correction", "Medium (15%)")
@@ -2929,6 +3098,7 @@ def load_settings_from_json_standard(json_string: str):
             negative_prompt,
             text_input,
             input_type,
+            use_temporary_short_link,
             image_size,
             border_size,
             error_correction,
@@ -2979,11 +3149,13 @@ def load_settings_from_json_standard(json_string: str):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
             gr.update(value=error_msg, visible=True),
         )
     except Exception as e:
         error_msg = f"❌ Error loading settings: {str(e)}"
         return (
+            gr.update(),
             gr.update(),
             gr.update(),
             gr.update(),
@@ -3056,6 +3228,7 @@ def load_settings_from_json_artistic(json_string: str):
                 gr.update(),
                 gr.update(),
                 gr.update(),
+                gr.update(),
                 gr.update(value=error_msg, visible=True),
             )
 
@@ -3067,6 +3240,7 @@ def load_settings_from_json_artistic(json_string: str):
         )
         text_input = params.get("text_input", "")
         input_type = params.get("input_type", "URL")
+        use_temporary_short_link = params.get("use_temporary_short_link", False)
         image_size = params.get("image_size", 704)
         border_size = params.get("border_size", 6)
         error_correction = params.get("error_correction", "High (30%)")
@@ -3102,6 +3276,7 @@ def load_settings_from_json_artistic(json_string: str):
             negative_prompt,
             text_input,
             input_type,
+            use_temporary_short_link,
             image_size,
             border_size,
             error_correction,
@@ -3167,11 +3342,13 @@ def load_settings_from_json_artistic(json_string: str):
             gr.update(),
             gr.update(),
             gr.update(),
+            gr.update(),
             gr.update(value=error_msg, visible=True),
         )
     except Exception as e:
         error_msg = f"❌ Error loading settings: {str(e)}"
         return (
+            gr.update(),
             gr.update(),
             gr.update(),
             gr.update(),
@@ -4529,6 +4706,11 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         lines=3,
                         info="URL mode automatically removes common tracking params like utm_*, fbclid, and gclid before QR generation.",
                     )
+                    artistic_use_temporary_short_link = gr.Checkbox(
+                        label="Use temporary short link",
+                        value=False,
+                        info="URL mode only. Encodes a qrcut.co short link that expires after 7 days of inactivity.",
+                    )
 
                     # Import Settings section - separate accordion
                     with gr.Accordion("Import Settings from JSON", open=False):
@@ -5162,6 +5344,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     negative_prompt_artistic,
                     artistic_text_input,
                     artistic_input_type,
+                    artistic_use_temporary_short_link,
                     artistic_image_size,
                     artistic_border_size,
                     artistic_error_correction,
@@ -5221,6 +5404,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     negative_prompt_artistic,
                     artistic_text_input,
                     artistic_input_type,
+                    artistic_use_temporary_short_link,
                     artistic_image_size,
                     artistic_border_size,
                     artistic_error_correction,
@@ -5541,6 +5725,11 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         value="https://www.google.com",
                         lines=3,
                         info="URL mode automatically removes common tracking params like utm_*, fbclid, and gclid before QR generation.",
+                    )
+                    use_temporary_short_link = gr.Checkbox(
+                        label="Use temporary short link",
+                        value=False,
+                        info="URL mode only. Encodes a qrcut.co short link that expires after 7 days of inactivity.",
                     )
 
                     # Import Settings section - separate accordion
@@ -5919,6 +6108,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     negative_prompt_standard,
                     text_input,
                     input_type,
+                    use_temporary_short_link,
                     image_size,
                     border_size,
                     error_correction,
@@ -5960,6 +6150,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     negative_prompt_standard,
                     text_input,
                     input_type,
+                    use_temporary_short_link,
                     image_size,
                     border_size,
                     error_correction,
