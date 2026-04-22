@@ -318,6 +318,12 @@ def _build_shortener_note(shortener_result: Mapping[str, Any] | None) -> str | N
     return None
 
 
+def _shortener_preview_qr_text(input_type: str, qr_text: str) -> str:
+    if input_type != "URL":
+        return qr_text
+    return "qrcut.co/Ab3xP9kQ"
+
+
 def _maybe_shorten_url_for_qr(
     *,
     original_input: str,
@@ -1166,12 +1172,20 @@ def _matches_example_settings(
 def _get_artistic_validation_state(
     qr_text: str,
     input_type: str,
+    use_temporary_short_link: bool,
     image_size: int,
     border_size: int,
     error_correction: str,
     module_size: int,
 ):
-    normalized_qr_text = _normalize_qr_text_for_validation(qr_text, input_type)
+    validation_qr_text = (
+        _shortener_preview_qr_text(input_type, qr_text)
+        if _normalize_bool(use_temporary_short_link)
+        else qr_text
+    )
+    normalized_qr_text = _normalize_qr_text_for_validation(
+        validation_qr_text, input_type
+    )
     suppress_reduce = _matches_example_settings(
         qr_text,
         input_type,
@@ -1191,7 +1205,7 @@ def _get_artistic_validation_state(
 
     try:
         size = _compute_qr_dimensions(
-            qr_text=qr_text,
+            qr_text=validation_qr_text,
             input_type=input_type,
             border_size=border_size,
             error_correction=error_correction,
@@ -1226,10 +1240,12 @@ def _get_artistic_validation_state(
         )
 
     suggested_size = _recommended_image_size(size, image_size)
+    hide_size_tips = _normalize_bool(use_temporary_short_link)
     if (
         suggested_size is not None
         and suggested_size < image_size
         and not suppress_reduce
+        and not hide_size_tips
     ):
         return (
             gr.update(value="", visible=False),
@@ -1243,6 +1259,7 @@ def _get_artistic_validation_state(
 
     if (
         input_type == "URL"
+        and not _normalize_bool(use_temporary_short_link)
         and len(normalized_qr_text) >= 38
         and image_size <= 704
         and module_size >= 14
@@ -1263,12 +1280,14 @@ def _get_artistic_validation_state(
                 if suggested_size is not None
                 and suggested_size < image_size
                 and not suppress_reduce
+                and not hide_size_tips
                 else gr.update(visible=False)
             ),
             suggested_size
             if suggested_size is not None
             and suggested_size < image_size
             and not suppress_reduce
+            and not hide_size_tips
             else None,
         )
 
@@ -1283,12 +1302,14 @@ def _get_artistic_validation_state(
             if suggested_size is not None
             and suggested_size < image_size
             and not suppress_reduce
+            and not hide_size_tips
             else gr.update(visible=False)
         ),
         suggested_size
         if suggested_size is not None
         and suggested_size < image_size
         and not suppress_reduce
+        and not hide_size_tips
         else None,
     )
 
@@ -1296,12 +1317,20 @@ def _get_artistic_validation_state(
 def _get_standard_validation_state(
     qr_text: str,
     input_type: str,
+    use_temporary_short_link: bool,
     image_size: int,
     border_size: int,
     error_correction: str,
     module_size: int,
 ):
-    normalized_qr_text = _normalize_qr_text_for_validation(qr_text, input_type)
+    validation_qr_text = (
+        _shortener_preview_qr_text(input_type, qr_text)
+        if _normalize_bool(use_temporary_short_link)
+        else qr_text
+    )
+    normalized_qr_text = _normalize_qr_text_for_validation(
+        validation_qr_text, input_type
+    )
     suppress_reduce = _matches_example_settings(
         qr_text,
         input_type,
@@ -1321,7 +1350,7 @@ def _get_standard_validation_state(
 
     try:
         size = _compute_qr_dimensions(
-            qr_text=qr_text,
+            qr_text=validation_qr_text,
             input_type=input_type,
             border_size=border_size,
             error_correction=error_correction,
@@ -1356,10 +1385,12 @@ def _get_standard_validation_state(
         )
 
     suggested_size = _recommended_image_size(size, image_size)
+    hide_size_tips = _normalize_bool(use_temporary_short_link)
     if (
         suggested_size is not None
         and suggested_size < image_size
         and not suppress_reduce
+        and not hide_size_tips
     ):
         return (
             gr.update(value="", visible=False),
@@ -1373,6 +1404,7 @@ def _get_standard_validation_state(
 
     if (
         input_type == "URL"
+        and not _normalize_bool(use_temporary_short_link)
         and len(normalized_qr_text) >= 38
         and image_size <= 512
         and module_size >= 12
@@ -1393,12 +1425,14 @@ def _get_standard_validation_state(
                 if suggested_size is not None
                 and suggested_size < image_size
                 and not suppress_reduce
+                and not hide_size_tips
                 else gr.update(visible=False)
             ),
             suggested_size
             if suggested_size is not None
             and suggested_size < image_size
             and not suppress_reduce
+            and not hide_size_tips
             else None,
         )
 
@@ -1413,12 +1447,14 @@ def _get_standard_validation_state(
             if suggested_size is not None
             and suggested_size < image_size
             and not suppress_reduce
+            and not hide_size_tips
             else gr.update(visible=False)
         ),
         suggested_size
         if suggested_size is not None
         and suggested_size < image_size
         and not suppress_reduce
+        and not hide_size_tips
         else None,
     )
 
@@ -2596,10 +2632,7 @@ def generate_standard_qr(
             # Show progressive updates but don't show accordion or export buttons yet
             yield (
                 image,
-                _append_status_note(
-                    _append_status_note(status, url_normalization_note),
-                    shortener_note,
-                ),
+                status,
                 gr.update(),
                 gr.update(),
                 gr.update(visible=False),
@@ -2900,10 +2933,7 @@ def generate_artistic_qr(
             if first_yield:
                 yield (
                     gr.update(visible=True, value=image),
-                    _append_status_note(
-                        _append_status_note(status, url_normalization_note),
-                        shortener_note,
-                    ),
+                    status,
                     gr.update(),
                     gr.update(),
                     gr.update(visible=False),
@@ -2914,10 +2944,7 @@ def generate_artistic_qr(
             else:
                 yield (
                     image,
-                    _append_status_note(
-                        _append_status_note(status, url_normalization_note),
-                        shortener_note,
-                    ),
+                    status,
                     gr.update(),
                     gr.update(),
                     gr.update(visible=False),
@@ -5475,6 +5502,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
             for component in [
                 artistic_text_input,
                 artistic_input_type,
+                artistic_use_temporary_short_link,
                 artistic_image_size,
                 artistic_border_size,
                 artistic_error_correction,
@@ -5485,6 +5513,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     inputs=[
                         artistic_text_input,
                         artistic_input_type,
+                        artistic_use_temporary_short_link,
                         artistic_image_size,
                         artistic_border_size,
                         artistic_error_correction,
@@ -5511,6 +5540,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     _get_artistic_validation_state(
                         example["text_input"],
                         example["input_type"],
+                        False,
                         example["image_size"],
                         example["border_size"],
                         example["error_correction"],
@@ -5530,6 +5560,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     example["prompt"],
                     example["text_input"],
                     example["input_type"],
+                    False,
                     example["image_size"],
                     example["border_size"],
                     example["error_correction"],
@@ -5559,6 +5590,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_prompt_input,
                     artistic_text_input,
                     artistic_input_type,
+                    artistic_use_temporary_short_link,
                     artistic_image_size,
                     artistic_border_size,
                     artistic_error_correction,
@@ -5583,6 +5615,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     _get_artistic_validation_state(
                         example["text_input"],
                         example["input_type"],
+                        False,
                         example["image_size"],
                         example["border_size"],
                         example["error_correction"],
@@ -5593,6 +5626,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     example["prompt"],
                     example["text_input"],
                     example["input_type"],
+                    False,
                     example["image_size"],
                     example["border_size"],
                     example["error_correction"],
@@ -5620,6 +5654,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     artistic_prompt_input,
                     artistic_text_input,
                     artistic_input_type,
+                    artistic_use_temporary_short_link,
                     artistic_image_size,
                     artistic_border_size,
                     artistic_error_correction,
@@ -5645,6 +5680,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 inputs=[
                     artistic_text_input,
                     artistic_input_type,
+                    artistic_use_temporary_short_link,
                     artistic_image_size,
                     artistic_border_size,
                     artistic_error_correction,
@@ -6183,6 +6219,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 inputs=[
                     text_input,
                     input_type,
+                    use_temporary_short_link,
                     image_size,
                     border_size,
                     error_correction,
@@ -6213,6 +6250,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
             for component in [
                 text_input,
                 input_type,
+                use_temporary_short_link,
                 image_size,
                 border_size,
                 error_correction,
@@ -6223,6 +6261,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     inputs=[
                         text_input,
                         input_type,
+                        use_temporary_short_link,
                         image_size,
                         border_size,
                         error_correction,
@@ -6250,6 +6289,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                 inputs=[
                     text_input,
                     input_type,
+                    use_temporary_short_link,
                     image_size,
                     border_size,
                     error_correction,
