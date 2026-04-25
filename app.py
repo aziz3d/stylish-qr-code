@@ -398,19 +398,35 @@ def _build_url_analytics_fields(
         return {
             "original_qr_payload_length": None,
             "effective_qr_payload_length": None,
+            "scheme_stripped_for_qr": False,
             "url_normalization_applied": False,
             "url_tracking_params_removed": 0,
+            "url_normalization_chars_saved": 0,
+            "shortener_applied": False,
+            "shortener_chars_saved": 0,
             "url_chars_saved": 0,
         }
+
+    normalized_qr_text = str(settings.get("normalized_qr_text") or text_input or "")
+    shortener_applied = bool(settings.get("shortener_applied"))
+    normalization_chars_saved = int(settings.get("url_chars_saved") or 0)
+    shortener_chars_saved = 0
+    if shortener_applied:
+        shortener_chars_saved = max(0, len(normalized_qr_text) - len(effective_qr_text))
 
     return {
         "original_qr_payload_length": len(str(text_input or "")),
         "effective_qr_payload_length": len(effective_qr_text),
+        "scheme_stripped_for_qr": bool(effective_qr_text)
+        and not effective_qr_text.startswith(("http://", "https://")),
         "url_normalization_applied": bool(settings.get("url_normalization_applied")),
         "url_tracking_params_removed": int(
             settings.get("url_tracking_params_removed") or 0
         ),
-        "url_chars_saved": int(settings.get("url_chars_saved") or 0),
+        "url_normalization_chars_saved": normalization_chars_saved,
+        "shortener_applied": shortener_applied,
+        "shortener_chars_saved": shortener_chars_saved,
+        "url_chars_saved": normalization_chars_saved + shortener_chars_saved,
     }
 
 
@@ -502,8 +518,14 @@ def _record_generation_event(payload: Mapping[str, Any]) -> None:
             "anonymous_id": payload.get("anonymous_id"),
             "original_qr_payload_length": payload.get("original_qr_payload_length"),
             "effective_qr_payload_length": payload.get("effective_qr_payload_length"),
+            "scheme_stripped_for_qr": payload.get("scheme_stripped_for_qr"),
             "url_normalization_applied": payload.get("url_normalization_applied"),
             "url_tracking_params_removed": payload.get("url_tracking_params_removed"),
+            "url_normalization_chars_saved": payload.get(
+                "url_normalization_chars_saved"
+            ),
+            "shortener_applied": payload.get("shortener_applied"),
+            "shortener_chars_saved": payload.get("shortener_chars_saved"),
             "url_chars_saved": payload.get("url_chars_saved"),
         },
     )
@@ -527,29 +549,15 @@ def _record_validation_event(payload: Mapping[str, Any]) -> None:
             "anonymous_id": payload.get("anonymous_id"),
             "original_qr_payload_length": payload.get("original_qr_payload_length"),
             "effective_qr_payload_length": payload.get("effective_qr_payload_length"),
+            "scheme_stripped_for_qr": payload.get("scheme_stripped_for_qr"),
             "url_normalization_applied": payload.get("url_normalization_applied"),
             "url_tracking_params_removed": payload.get("url_tracking_params_removed"),
+            "url_normalization_chars_saved": payload.get(
+                "url_normalization_chars_saved"
+            ),
+            "shortener_applied": payload.get("shortener_applied"),
+            "shortener_chars_saved": payload.get("shortener_chars_saved"),
             "url_chars_saved": payload.get("url_chars_saved"),
-        },
-    )
-
-
-def _record_validation_event(payload: Mapping[str, Any]) -> None:
-    _emit_analytics_log("validation", payload)
-    _queue_background_work(_write_supabase_row, SUPABASE_VALIDATION_TABLE, payload)
-    _queue_background_work(
-        _capture_posthog_event,
-        "validation_blocked",
-        {
-            "product": "ai_qr_generator",
-            "source": payload.get("source"),
-            "pipeline": payload.get("pipeline"),
-            "tool_name": payload.get("tool_name"),
-            "analytics_opt_in": payload.get("analytics_opt_in"),
-            "error_bucket": payload.get("error_bucket"),
-            "error_message_hash": payload.get("error_message_hash"),
-            "generation_id": payload.get("generation_id"),
-            "anonymous_id": payload.get("anonymous_id"),
         },
     )
 
@@ -2525,6 +2533,9 @@ def generate_standard_qr(
         "short_url": shortener_result.get("short_url"),
         "shortener_expires_at": shortener_result.get("expires_at"),
         "shortener_error": shortener_result.get("error"),
+        "normalized_qr_text": (url_normalization or {}).get(
+            "normalized_qr_text", text_input
+        ),
         "input_type": input_type,
         "image_size": image_size,
         "border_size": border_size,
@@ -2797,6 +2808,9 @@ def generate_artistic_qr(
         "short_url": shortener_result.get("short_url"),
         "shortener_expires_at": shortener_result.get("expires_at"),
         "shortener_error": shortener_result.get("error"),
+        "normalized_qr_text": (url_normalization or {}).get(
+            "normalized_qr_text", text_input
+        ),
         "input_type": input_type,
         "image_size": image_size,
         "border_size": border_size,
