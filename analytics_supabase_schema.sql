@@ -16,8 +16,12 @@ create table if not exists public.analytics_generation_events (
   anonymous_id text not null,
   original_qr_payload_length integer,
   effective_qr_payload_length integer,
+  scheme_stripped_for_qr boolean not null default false,
   url_normalization_applied boolean not null default false,
   url_tracking_params_removed integer not null default 0,
+  url_normalization_chars_saved integer not null default 0,
+  shortener_applied boolean not null default false,
+  shortener_chars_saved integer not null default 0,
   url_chars_saved integer not null default 0,
   prompt_full text,
   qr_payload_full text,
@@ -76,8 +80,12 @@ create table if not exists public.analytics_validation_events (
   anonymous_id text not null,
   original_qr_payload_length integer,
   effective_qr_payload_length integer,
+  scheme_stripped_for_qr boolean not null default false,
   url_normalization_applied boolean not null default false,
   url_tracking_params_removed integer not null default 0,
+  url_normalization_chars_saved integer not null default 0,
+  shortener_applied boolean not null default false,
+  shortener_chars_saved integer not null default 0,
   url_chars_saved integer not null default 0,
   prompt_full text,
   qr_payload_full text,
@@ -95,15 +103,23 @@ revoke all on table public.analytics_validation_events from anon, authenticated;
 alter table public.analytics_generation_events
   add column if not exists original_qr_payload_length integer,
   add column if not exists effective_qr_payload_length integer,
+  add column if not exists scheme_stripped_for_qr boolean not null default false,
   add column if not exists url_normalization_applied boolean not null default false,
   add column if not exists url_tracking_params_removed integer not null default 0,
+  add column if not exists url_normalization_chars_saved integer not null default 0,
+  add column if not exists shortener_applied boolean not null default false,
+  add column if not exists shortener_chars_saved integer not null default 0,
   add column if not exists url_chars_saved integer not null default 0;
 
 alter table public.analytics_validation_events
   add column if not exists original_qr_payload_length integer,
   add column if not exists effective_qr_payload_length integer,
+  add column if not exists scheme_stripped_for_qr boolean not null default false,
   add column if not exists url_normalization_applied boolean not null default false,
   add column if not exists url_tracking_params_removed integer not null default 0,
+  add column if not exists url_normalization_chars_saved integer not null default 0,
+  add column if not exists shortener_applied boolean not null default false,
+  add column if not exists shortener_chars_saved integer not null default 0,
   add column if not exists url_chars_saved integer not null default 0;
 create or replace view public.analytics_generation_outcomes as
 select
