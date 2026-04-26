@@ -4751,9 +4751,9 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         info="URL mode automatically removes common tracking params like utm_*, fbclid, and gclid before QR generation.",
                     )
                     artistic_use_temporary_short_link = gr.Checkbox(
-                        label="Use URL shortener",
-                        value=False,
-                        info="URL mode only. Best option for longer links when you want cleaner QR codes without raising image size too much. The short link expires if nobody opens the QR code for 7 days.",
+                        label="Temporary experiment: use URL shortener by default",
+                        value=True,
+                        info="URL mode only. Based on user data, this is enabled by default because it improves QR reliability for longer links. If you do not want an intermediate short link, opt out here. Short links expire if nobody opens them for 7 days.",
                     )
 
                     # Import Settings section - separate accordion
@@ -5780,9 +5780,9 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         info="URL mode automatically removes common tracking params like utm_*, fbclid, and gclid before QR generation.",
                     )
                     use_temporary_short_link = gr.Checkbox(
-                        label="Use URL shortener",
-                        value=False,
-                        info="URL mode only. Best option for longer links when you want cleaner QR codes without raising image size too much. The short link expires if nobody opens the QR code for 7 days.",
+                        label="Temporary experiment: use URL shortener by default",
+                        value=True,
+                        info="URL mode only. Based on user data, this is enabled by default because it improves QR reliability for longer links. If you do not want an intermediate short link, opt out here. Short links expire if nobody opens them for 7 days.",
                     )
 
                     # Import Settings section - separate accordion
