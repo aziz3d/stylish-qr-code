@@ -66,7 +66,9 @@ class GenerateRequest(BaseModel):
     tile_pyrup_iters: int = Field(default=3, ge=1, le=4)
 
 
-def build_generation_kwargs(request: GenerateRequest) -> dict[str, Any]:
+def build_generation_kwargs(
+    request: GenerateRequest, runtime_request: Any | None = None
+) -> dict[str, Any]:
     common = {
         "prompt": request.prompt,
         "negative_prompt": request.negative_prompt,
@@ -93,7 +95,7 @@ def build_generation_kwargs(request: GenerateRequest) -> dict[str, Any]:
         "gradient_strength": request.gradient_strength,
         "variation_steps": request.variation_steps,
         "progress": None,
-        "request": None,
+        "request": runtime_request,
     }
 
     if request.mode == "artistic":

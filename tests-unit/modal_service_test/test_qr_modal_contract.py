@@ -22,6 +22,19 @@ def test_build_generation_kwargs_includes_short_link_flag_and_wrapper_fields():
     assert kwargs["analytics_opt_in"] is False
 
 
+def test_build_generation_kwargs_passes_request_object_when_provided():
+    request = GenerateRequest(
+        mode="standard",
+        prompt="poster",
+        qr_text="https://example.com",
+    )
+    runtime_request = object()
+
+    kwargs = build_generation_kwargs(request, runtime_request=runtime_request)
+
+    assert kwargs["request"] is runtime_request
+
+
 def test_build_generation_kwargs_for_standard_omits_artistic_only_fields():
     request = GenerateRequest(
         mode="standard",

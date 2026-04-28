@@ -99,7 +99,7 @@ image = (
 )
 @modal.asgi_app()
 def api():
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.concurrency import run_in_threadpool
 
     state: dict[str, Any] = {
@@ -148,20 +148,24 @@ def api():
         }
 
     @web_app.post("/generate")
-    async def generate(request: GenerateRequest) -> dict[str, Any]:
+    async def generate(
+        payload: GenerateRequest, raw_request: Request
+    ) -> dict[str, Any]:
         if not state["ready"] or state["backend"] is None:
             raise HTTPException(
                 status_code=503, detail=state["import_error"] or "Backend not ready"
             )
 
-        actual_seed = resolve_request_seed(request)
-        prepared_request = request.model_copy(
+        actual_seed = resolve_request_seed(payload)
+        prepared_request = payload.model_copy(
             update={"seed": actual_seed, "use_custom_seed": True}
         )
 
         def _run_generation() -> tuple[Any, str, dict[str, Any] | None]:
             backend = state["backend"]
-            kwargs = build_generation_kwargs(prepared_request)
+            kwargs = build_generation_kwargs(
+                prepared_request, runtime_request=raw_request
+            )
             if prepared_request.mode == "artistic":
                 generator = backend.generate_artistic_qr(**kwargs)
             else:
@@ -178,7 +182,7 @@ def api():
         return build_response_payload(
             image_obj,
             final_status,
-            request,
+            payload,
             actual_seed=actual_seed,
             elapsed=elapsed,
             settings=settings,
