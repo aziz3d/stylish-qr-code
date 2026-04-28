@@ -27,6 +27,7 @@ class GenerateRequest(BaseModel):
     include_image_base64: bool = Field(default=True)
     use_temporary_short_link: bool = Field(default=False)
     analytics_opt_in: bool = Field(default=False)
+    enable_freeu: bool = Field(default=True)
     negative_prompt: str = Field(
         default=(
             "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, "
@@ -82,8 +83,6 @@ def build_generation_kwargs(request: GenerateRequest) -> dict[str, Any]:
         "enable_upscale": request.enable_upscale,
         "enable_animation": request.enable_animation,
         "analytics_opt_in": request.analytics_opt_in,
-        "controlnet_strength_standard_first": request.controlnet_strength_standard_first,
-        "controlnet_strength_standard_final": request.controlnet_strength_standard_final,
         "enable_color_quantization": request.enable_color_quantization,
         "num_colors": request.num_colors,
         "color_1": request.color_1,
@@ -100,6 +99,7 @@ def build_generation_kwargs(request: GenerateRequest) -> dict[str, Any]:
     if request.mode == "artistic":
         return {
             **common,
+            "enable_freeu": request.enable_freeu,
             "freeu_b1": request.freeu_b1,
             "freeu_b2": request.freeu_b2,
             "freeu_s1": request.freeu_s1,
@@ -119,6 +119,13 @@ def build_generation_kwargs(request: GenerateRequest) -> dict[str, Any]:
             "customize_tile_preprocessing": request.customize_tile_preprocessing,
             "tile_pyrup_iters": request.tile_pyrup_iters,
         }
+
+    common["controlnet_strength_standard_first"] = (
+        request.controlnet_strength_standard_first
+    )
+    common["controlnet_strength_standard_final"] = (
+        request.controlnet_strength_standard_final
+    )
 
     return common
 

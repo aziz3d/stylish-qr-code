@@ -44,14 +44,31 @@ def test_build_generation_kwargs_for_artistic_keeps_artistic_fields():
         mode="artistic",
         prompt="poster",
         qr_text="https://example.com",
+        enable_freeu=False,
         enable_cascade_filter=True,
         freeu_b1=2.0,
     )
 
     kwargs = build_generation_kwargs(request)
 
+    assert kwargs["enable_freeu"] is False
     assert kwargs["enable_cascade_filter"] is True
     assert kwargs["freeu_b1"] == 2.0
+
+
+def test_build_generation_kwargs_for_artistic_omits_standard_only_fields():
+    request = GenerateRequest(
+        mode="artistic",
+        prompt="poster",
+        qr_text="https://example.com",
+        controlnet_strength_standard_first=0.9,
+        controlnet_strength_standard_final=0.8,
+    )
+
+    kwargs = build_generation_kwargs(request)
+
+    assert "controlnet_strength_standard_first" not in kwargs
+    assert "controlnet_strength_standard_final" not in kwargs
 
 
 def test_consume_final_result_supports_wrapper_style_tuples():
