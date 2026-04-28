@@ -66,7 +66,7 @@ class GenerateRequest(BaseModel):
 
 
 def build_generation_kwargs(request: GenerateRequest) -> dict[str, Any]:
-    return {
+    common = {
         "prompt": request.prompt,
         "negative_prompt": request.negative_prompt,
         "text_input": request.qr_text,
@@ -81,17 +81,7 @@ def build_generation_kwargs(request: GenerateRequest) -> dict[str, Any]:
         "seed": request.seed,
         "enable_upscale": request.enable_upscale,
         "enable_animation": request.enable_animation,
-        "include_svg": request.include_svg,
         "analytics_opt_in": request.analytics_opt_in,
-        "freeu_b1": request.freeu_b1,
-        "freeu_b2": request.freeu_b2,
-        "freeu_s1": request.freeu_s1,
-        "freeu_s2": request.freeu_s2,
-        "enable_sag": request.enable_sag,
-        "sag_scale": request.sag_scale,
-        "sag_blur_sigma": request.sag_blur_sigma,
-        "controlnet_strength_first": request.controlnet_strength_first,
-        "controlnet_strength_final": request.controlnet_strength_final,
         "controlnet_strength_standard_first": request.controlnet_strength_standard_first,
         "controlnet_strength_standard_final": request.controlnet_strength_standard_final,
         "enable_color_quantization": request.enable_color_quantization,
@@ -103,18 +93,34 @@ def build_generation_kwargs(request: GenerateRequest) -> dict[str, Any]:
         "apply_gradient_filter": request.apply_gradient_filter,
         "gradient_strength": request.gradient_strength,
         "variation_steps": request.variation_steps,
-        "enable_cascade_filter": request.enable_cascade_filter,
-        "cascade_blur_kernel": request.cascade_blur_kernel,
-        "cascade_threshold_ratio": request.cascade_threshold_ratio,
-        "enable_detail_sharpening": request.enable_detail_sharpening,
-        "sharpening_radius": request.sharpening_radius,
-        "sharpening_amount": request.sharpening_amount,
-        "sharpening_threshold": request.sharpening_threshold,
-        "customize_tile_preprocessing": request.customize_tile_preprocessing,
-        "tile_pyrup_iters": request.tile_pyrup_iters,
         "progress": None,
         "request": None,
     }
+
+    if request.mode == "artistic":
+        return {
+            **common,
+            "freeu_b1": request.freeu_b1,
+            "freeu_b2": request.freeu_b2,
+            "freeu_s1": request.freeu_s1,
+            "freeu_s2": request.freeu_s2,
+            "enable_sag": request.enable_sag,
+            "sag_scale": request.sag_scale,
+            "sag_blur_sigma": request.sag_blur_sigma,
+            "controlnet_strength_first": request.controlnet_strength_first,
+            "controlnet_strength_final": request.controlnet_strength_final,
+            "enable_cascade_filter": request.enable_cascade_filter,
+            "cascade_blur_kernel": request.cascade_blur_kernel,
+            "cascade_threshold_ratio": request.cascade_threshold_ratio,
+            "enable_detail_sharpening": request.enable_detail_sharpening,
+            "sharpening_radius": request.sharpening_radius,
+            "sharpening_amount": request.sharpening_amount,
+            "sharpening_threshold": request.sharpening_threshold,
+            "customize_tile_preprocessing": request.customize_tile_preprocessing,
+            "tile_pyrup_iters": request.tile_pyrup_iters,
+        }
+
+    return common
 
 
 def consume_final_result(

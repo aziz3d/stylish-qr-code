@@ -22,6 +22,38 @@ def test_build_generation_kwargs_includes_short_link_flag_and_wrapper_fields():
     assert kwargs["analytics_opt_in"] is False
 
 
+def test_build_generation_kwargs_for_standard_omits_artistic_only_fields():
+    request = GenerateRequest(
+        mode="standard",
+        prompt="poster",
+        qr_text="https://example.com",
+        include_svg=True,
+        enable_cascade_filter=True,
+        freeu_b1=2.0,
+    )
+
+    kwargs = build_generation_kwargs(request)
+
+    assert "include_svg" not in kwargs
+    assert "enable_cascade_filter" not in kwargs
+    assert "freeu_b1" not in kwargs
+
+
+def test_build_generation_kwargs_for_artistic_keeps_artistic_fields():
+    request = GenerateRequest(
+        mode="artistic",
+        prompt="poster",
+        qr_text="https://example.com",
+        enable_cascade_filter=True,
+        freeu_b1=2.0,
+    )
+
+    kwargs = build_generation_kwargs(request)
+
+    assert kwargs["enable_cascade_filter"] is True
+    assert kwargs["freeu_b1"] == 2.0
+
+
 def test_consume_final_result_supports_wrapper_style_tuples():
     results = [
         (None, "warming", None, None, None),
