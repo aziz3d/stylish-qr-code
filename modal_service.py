@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import importlib.util
 import os
 import sys
@@ -100,7 +98,7 @@ image = (
 )
 @modal.asgi_app()
 def api():
-    from fastapi import Body, FastAPI, HTTPException, Request
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.concurrency import run_in_threadpool
 
     state: dict[str, Any] = {
@@ -149,13 +147,16 @@ def api():
         }
 
     @web_app.post("/generate")
-    async def generate(
-        raw_request: Request, payload: GenerateRequest = Body(...)
-    ) -> dict[str, Any]:
+    async def generate(raw_request: Request) -> dict[str, Any]:
         if not state["ready"] or state["backend"] is None:
             raise HTTPException(
                 status_code=503, detail=state["import_error"] or "Backend not ready"
             )
+
+        try:
+            payload = GenerateRequest.model_validate(await raw_request.json())
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
         actual_seed = resolve_request_seed(payload)
         prepared_request = payload.model_copy(
