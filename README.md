@@ -50,6 +50,7 @@ When enabled in the UI, URL mode can replace the QR payload with a `qrcut.co` sh
 - `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`)
 - `ANALYTICS_ENABLED` (optional, defaults to `true`)
 - `ANALYTICS_DEFAULT_OPT_IN` (optional, defaults to `false`)
+- `ANALYTICS_PRODUCT` (optional, defaults to `ai_qr_generator`; set Modal/iOS deployments to `arti_qrcode_app` when sharing the same analytics tables)
 - `URL_SHORTENER_API_URL` (optional, for example `https://qrcut.co/shorten`)
 - `URL_SHORTENER_API_KEY` (optional, private API key for the HF Space)
 - `URL_SHORTENER_SOURCE_APP` (optional, defaults to `ai_qr_generator`)

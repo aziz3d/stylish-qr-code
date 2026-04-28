@@ -29,6 +29,7 @@ import torch
 from huggingface_hub import hf_hub_download
 from PIL import Image
 import kornia.color  # For RGB→HSV conversion in Stable Cascade filter
+from runtime_config import get_analytics_product
 
 # ── Export helpers (PNG + embedded SVG download) ──────────────────────────────
 import base64
@@ -66,6 +67,7 @@ POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com").rstrip("/")
 POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "") or os.getenv(
     "POSTHOG_SECRET_KEY", ""
 )
+ANALYTICS_PRODUCT = get_analytics_product()
 URL_SHORTENER_API_URL = os.getenv("URL_SHORTENER_API_URL", "").rstrip("/")
 URL_SHORTENER_API_KEY = os.getenv("URL_SHORTENER_API_KEY", "")
 URL_SHORTENER_SOURCE_APP = os.getenv("URL_SHORTENER_SOURCE_APP", "ai_qr_generator")
@@ -343,6 +345,9 @@ def _maybe_shorten_url_for_qr(
     if input_type != "URL" or not _normalize_bool(use_temporary_short_link):
         return result
     if not URL_SHORTENER_API_URL or not URL_SHORTENER_API_KEY:
+        print(
+            f"[shortener] requested source_app={URL_SHORTENER_SOURCE_APP} configured=false"
+        )
         return {
             **result,
             "error": "shortener is not configured on the server",
@@ -355,6 +360,9 @@ def _maybe_shorten_url_for_qr(
         "X-Source-App": URL_SHORTENER_SOURCE_APP,
     }
     try:
+        print(
+            f"[shortener] requested source_app={URL_SHORTENER_SOURCE_APP} original_length={len(str(original_input or ''))}"
+        )
         request_obj = urllib_request.Request(
             URL_SHORTENER_API_URL,
             data=request_body,
@@ -368,6 +376,12 @@ def _maybe_shorten_url_for_qr(
         short_url = str(payload.get("short_url") or "").strip()
         if not short_url:
             raise ValueError("shortener returned an empty short URL")
+        print(
+            "[shortener] applied "
+            f"source_app={URL_SHORTENER_SOURCE_APP} short_url={short_url} "
+            f"existed={bool(payload.get('existed'))} "
+            f"reactivated={bool(payload.get('reactivated'))}"
+        )
         return {
             "applied": True,
             "effective_qr_text": _normalize_qr_text_for_validation(short_url, "URL"),
@@ -383,6 +397,7 @@ def _maybe_shorten_url_for_qr(
         ValueError,
         json.JSONDecodeError,
     ) as exc:
+        print(f"[shortener] fallback source_app={URL_SHORTENER_SOURCE_APP} error={exc}")
         return {
             **result,
             "error": str(exc),
@@ -506,7 +521,7 @@ def _record_generation_event(payload: Mapping[str, Any]) -> None:
         _capture_posthog_event,
         "generate_finished",
         {
-            "product": "ai_qr_generator",
+            "product": ANALYTICS_PRODUCT,
             "source": payload.get("source"),
             "pipeline": payload.get("pipeline"),
             "tool_name": payload.get("tool_name"),
@@ -538,7 +553,7 @@ def _record_validation_event(payload: Mapping[str, Any]) -> None:
         _capture_posthog_event,
         "validation_blocked",
         {
-            "product": "ai_qr_generator",
+            "product": ANALYTICS_PRODUCT,
             "source": payload.get("source"),
             "pipeline": payload.get("pipeline"),
             "tool_name": payload.get("tool_name"),
@@ -569,7 +584,7 @@ def _record_download_event(payload: Mapping[str, Any]) -> None:
         _capture_posthog_event,
         "download_requested",
         {
-            "product": "ai_qr_generator",
+            "product": ANALYTICS_PRODUCT,
             "source": payload.get("source"),
             "pipeline": payload.get("pipeline"),
             "tool_name": payload.get("tool_name"),
@@ -602,7 +617,7 @@ def _build_generation_payload(
     payload = {
         "generation_id": generation_id,
         "timestamp": _utc_now_iso(),
-        "product": "ai_qr_generator",
+        "product": ANALYTICS_PRODUCT,
         "source": source,
         "pipeline": pipeline,
         "tool_name": tool_name,
@@ -645,7 +660,7 @@ def _build_download_payload(
     payload = {
         "generation_id": generation_id or "",
         "timestamp": _utc_now_iso(),
-        "product": "ai_qr_generator",
+        "product": ANALYTICS_PRODUCT,
         "source": source,
         "pipeline": pipeline or "unknown",
         "tool_name": tool_name,
@@ -682,7 +697,7 @@ def _build_validation_payload(
     payload = {
         "generation_id": generation_id,
         "timestamp": _utc_now_iso(),
-        "product": "ai_qr_generator",
+        "product": ANALYTICS_PRODUCT,
         "source": source,
         "pipeline": pipeline,
         "tool_name": tool_name,
