@@ -6,6 +6,7 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import modal
@@ -99,7 +100,7 @@ image = (
 )
 @modal.asgi_app()
 def api():
-    from fastapi import FastAPI, HTTPException, Request
+    from fastapi import Body, FastAPI, HTTPException, Request
     from fastapi.concurrency import run_in_threadpool
 
     state: dict[str, Any] = {
@@ -149,7 +150,7 @@ def api():
 
     @web_app.post("/generate")
     async def generate(
-        payload: GenerateRequest, raw_request: Request
+        raw_request: Request, payload: GenerateRequest = Body(...)
     ) -> dict[str, Any]:
         if not state["ready"] or state["backend"] is None:
             raise HTTPException(
@@ -163,8 +164,12 @@ def api():
 
         def _run_generation() -> tuple[Any, str, dict[str, Any] | None]:
             backend = state["backend"]
+            backend_request = SimpleNamespace(
+                headers=dict(raw_request.headers),
+                url=SimpleNamespace(path=str(raw_request.url.path)),
+            )
             kwargs = build_generation_kwargs(
-                prepared_request, runtime_request=raw_request
+                prepared_request, runtime_request=backend_request
             )
             if prepared_request.mode == "artistic":
                 generator = backend.generate_artistic_qr(**kwargs)
