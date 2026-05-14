@@ -6390,11 +6390,18 @@ demo.queue()
 
 # Launch the app when run directly (not during hot reload)
 if __name__ == "__main__":
-    # Call AOT compilation during startup (only on CUDA, not MPS)
-    if not torch.backends.mps.is_available() and not os.environ.get("QR_TESTING_MODE"):
+    # Skip startup AOT compilation on Hugging Face Spaces / ZeroGPU.
+    # The long warmup allocation can hard-fail Space startup before the UI comes up,
+    # while regular generation still uses the dynamic @spaces.GPU path.
+    running_on_hf_space = bool(os.environ.get("SPACE_ID") or os.environ.get("SPACE_HOST"))
+    if (
+        not running_on_hf_space
+        and not torch.backends.mps.is_available()
+        and not os.environ.get("QR_TESTING_MODE")
+    ):
         compile_models_with_aoti()
     else:
-        print("ℹ️  AOT compilation skipped (MPS or testing mode)\n")
+        print("ℹ️  AOT compilation skipped (HF Space / MPS / testing mode)\n")
 
     demo.launch(share=False, mcp_server=True)
     # Note: Automatic file cleanup via delete_cache not available in Gradio 5.49.1
