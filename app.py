@@ -2615,6 +2615,8 @@ def generate_standard_qr(
             gr.update(),
             gr.update(),
             gr.update(visible=False),
+            "standard",
+            generation_id,
         )
         return
 
@@ -2662,6 +2664,8 @@ def generate_standard_qr(
                 gr.update(),
                 gr.update(),
                 gr.update(visible=False),
+                "standard",
+                generation_id,
             )
     except Exception as exc:
         print("[generation-error][standard-wrapper]", traceback.format_exc())
@@ -2693,6 +2697,8 @@ def generate_standard_qr(
             gr.update(value=settings_json),
             gr.update(visible=True),
             gr.update(visible=True),
+            "standard",
+            generation_id,
         )
     elif ANALYTICS_ENABLED:
         _record_generation_event(
@@ -2721,6 +2727,8 @@ def generate_standard_qr(
             gr.update(),
             gr.update(),
             gr.update(visible=False),
+            "standard",
+            generation_id,
         )
 
 
@@ -2900,6 +2908,8 @@ def generate_artistic_qr(
             gr.update(visible=False),
             gr.update(visible=True),
             gr.update(visible=False),
+            "artistic",
+            generation_id,
         )
         return
 
@@ -2968,6 +2978,8 @@ def generate_artistic_qr(
                     gr.update(visible=False),
                     gr.update(visible=False),
                     gr.update(visible=False),
+                    "artistic",
+                    generation_id,
                 )
                 first_yield = False
             else:
@@ -2979,6 +2991,8 @@ def generate_artistic_qr(
                     gr.update(visible=False),
                     gr.update(visible=False),
                     gr.update(visible=False),
+                    "artistic",
+                    generation_id,
                 )
     except Exception as exc:
         print("[generation-error][artistic-wrapper]", traceback.format_exc())
@@ -3012,6 +3026,8 @@ def generate_artistic_qr(
             gr.update(visible=False),
             gr.update(visible=True),
             gr.update(visible=True),
+            "artistic",
+            generation_id,
         )
     elif ANALYTICS_ENABLED:
         _record_generation_event(
@@ -3042,6 +3058,8 @@ def generate_artistic_qr(
             gr.update(visible=False),
             gr.update(visible=True),
             gr.update(visible=False),
+            "artistic",
+            generation_id,
         )
 
 
@@ -5338,6 +5356,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
 
                     # State to track currently selected example index
                     current_example_index = gr.State(value=None)
+                    artistic_pipeline_state = gr.State(value="unknown")
+                    artistic_generation_id_state = gr.State(value="")
 
                     # The output image for artistic QR (initially hidden)
                     artistic_output_image = gr.Image(
@@ -5373,6 +5393,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_text_input,
                                 artistic_seed,
                                 analytics_opt_in_global,
+                                artistic_pipeline_state,
+                                artistic_generation_id_state,
                             ],
                         )
                         svg_download_artistic = gr.DownloadButton(
@@ -5385,6 +5407,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 artistic_text_input,
                                 artistic_seed,
                                 analytics_opt_in_global,
+                                artistic_pipeline_state,
+                                artistic_generation_id_state,
                             ],
                         )
 
@@ -5451,6 +5475,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     example_gallery,  # Control gallery visibility
                     show_examples_btn,  # Control button visibility
                     export_row_artistic,  # Control export buttons visibility
+                    artistic_pipeline_state,
+                    artistic_generation_id_state,
                 ],
             )
 
@@ -6118,6 +6144,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                         visible=False,
                     )
                     standard_recommended_image_size = gr.State(value=None)
+                    standard_pipeline_state = gr.State(value="unknown")
+                    standard_generation_id_state = gr.State(value="")
 
                     # The generate button
                     generate_btn = gr.Button("Generate Standard QR", variant="primary")
@@ -6153,6 +6181,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 text_input,
                                 seed,
                                 analytics_opt_in_global,
+                                standard_pipeline_state,
+                                standard_generation_id_state,
                             ],
                         )
                         svg_download_standard = gr.DownloadButton(
@@ -6165,6 +6195,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                                 text_input,
                                 seed,
                                 analytics_opt_in_global,
+                                standard_pipeline_state,
+                                standard_generation_id_state,
                             ],
                         )
 
@@ -6205,6 +6237,8 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
                     settings_output_standard,
                     settings_accordion_standard,
                     export_row_standard,  # Control export buttons visibility
+                    standard_pipeline_state,
+                    standard_generation_id_state,
                 ],
                 show_progress="full",
             )
