@@ -28,7 +28,7 @@ This GitHub mirror is maintained by **Aziz Khan** ([@aziz3d](https://github.com/
 
 ## Running Locally
 
-You can run this app entirely on your own machine — no API keys or cloud GPU required. Models are downloaded automatically from Hugging Face Hub on first launch and cached locally.
+You can run this app entirely on your own machine, no API keys or cloud GPU required. Models are downloaded automatically from Hugging Face Hub on first launch and cached locally.
 
 ### Requirements
 
