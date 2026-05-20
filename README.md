@@ -20,11 +20,80 @@ This GitHub mirror is maintained by **Aziz Khan** ([@aziz3d](https://github.com/
 
 ---
 
-
 ## Demo
+
 [Watch the demo video](showcase.mp4)
 
-## Optional analytics
+---
+
+## Running Locally
+
+You can run this app entirely on your own machine — no API keys or cloud GPU required. Models are downloaded automatically from Hugging Face Hub on first launch and cached locally.
+
+### Requirements
+
+- **Python 3.12** (recommended; 3.11 also works)
+- **NVIDIA GPU** with CUDA 12.1+ (recommended — RTX 3060 / 8 GB VRAM or better)
+- ~10 GB free disk space for models
+- ~2.5 GB for PyTorch + dependencies
+
+> CPU-only mode is supported via `launch.bat --cpu` but generation will be very slow.
+
+### Models downloaded on first run
+
+| Model | Size (approx.) |
+|---|---|
+| Stable Diffusion v1.5 | ~4 GB |
+| DreamShaper 3.32 & 6.31 | ~2 GB |
+| ControlNet Brightness + Tile | ~1.5 GB |
+| VAE (DreamShaper + MSE) | ~0.3 GB |
+| RealESRGAN x4 upscaler | ~0.06 GB |
+
+### Setup
+
+**Step 1 — Create the virtual environment** (already done if you cloned this repo and ran the setup):
+
+```bash
+python -m venv venv
+```
+
+**Step 2 — Install dependencies** (one-time):
+
+Double-click `install.bat` or run manually:
+
+```bash
+venv\Scripts\activate
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+pip install -r requirements.txt
+```
+
+**Step 3 — Launch the app:**
+
+Double-click `launch.bat` or run:
+
+```bash
+venv\Scripts\activate
+python run_local.py
+```
+
+Then open `http://127.0.0.1:7860` in your browser.
+
+### Launch options
+
+```bash
+launch.bat                  # default — http://127.0.0.1:7860
+launch.bat --share          # generate a public Gradio URL
+launch.bat --port 8080      # use a custom port
+launch.bat --cpu            # force CPU mode (no GPU needed, slow)
+```
+
+### How local mode works
+
+The app was originally built for Hugging Face ZeroGPU (the `@spaces.GPU` decorator). The included `run_local.py` script patches this decorator into a transparent no-op so the app runs without any HF infrastructure. Analytics are also disabled by default locally — no Supabase or PostHog credentials are needed.
+
+---
+
+## Optional analytics (HF Space / cloud deployments)
 
 The Space includes an optional analytics consent toggle for both UI and MCP usage.
 
@@ -48,7 +117,7 @@ When enabled in the UI, URL mode can replace the QR payload with a `qrcut.co` sh
 - Short links expire after 7 days of inactivity.
 - If the shortener is unavailable, generation falls back to the normalized original URL.
 
-### Required Space secrets
+### Required Space secrets (cloud deployments only)
 
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
