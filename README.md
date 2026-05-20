@@ -12,7 +12,13 @@ tags:
 - mcp-server-track
 ---
 
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
+# AI QR Code Generator
+
+> **Original repository:** This project is a clone of the [AI QR Code Generator](https://huggingface.co/spaces/Oysiyl/AI-QR-code-generator) Space originally created and maintained by [Oysiyl](https://huggingface.co/Oysiyl) on Hugging Face.
+
+This GitHub mirror is maintained by **Aziz Khan** ([@aziz3d](https://github.com/aziz3d)). Updates, improvements, and fixes are applied here on GitHub while staying in sync with the upstream Hugging Face Space.
+
+---
 
 
 ## Demo
