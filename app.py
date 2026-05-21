@@ -213,7 +213,12 @@ def _normalize_url_for_qr(text_input: str) -> Mapping[str, Any]:
     if not hostname:
         return result
 
-    port = parsed.port
+    try:
+        port = parsed.port
+    except ValueError:
+        # urlsplit can misparse non-HTTP strings (e.g. WiFi QR payloads) and produce
+        # a non-integer port value.  Treat these as non-URL inputs and return as-is.
+        return result
     netloc = hostname
     if parsed.username:
         auth = parsed.username
@@ -968,8 +973,11 @@ def add_extra_model_paths() -> None:
 
 
 # Only run initialization on first load, not during Gradio hot reload
-if not hasattr(__builtins__, "_comfy_initialized"):
-    __builtins__._comfy_initialized = True
+# __builtins__ can be a dict (when run via runpy) or the builtins module,
+# so we always use the actual builtins module for attribute storage.
+import builtins as _builtins_module
+if not getattr(_builtins_module, "_comfy_initialized", False):
+    _builtins_module._comfy_initialized = True
     add_comfyui_directory_to_sys_path()
     add_extra_model_paths()
 else:
@@ -2120,6 +2128,26 @@ def ksampler_with_animation(
 
     batch_inds = latent["batch_index"] if "batch_index" in latent else None
     noise = comfy.sample.prepare_noise(latent_image_data, seed, batch_inds)
+
+    # Ensure latent and noise are on the same device as the model to avoid
+    # "Expected all tensors to be on the same device" errors during the second pass.
+    target_device = model_management.get_torch_device()
+    latent_image_data = latent_image_data.to(target_device)
+    noise = noise.to(target_device)
+
+    # Enable on-the-fly weight casting for every layer that supports it.
+    # After soft_empty_cache() + the first threaded pass, ComfyUI's memory manager
+    # can leave some model layers on CPU while the input tensors are on CUDA.
+    # Setting comfy_cast_weights=True makes each layer cast its weights to the
+    # input device at forward-time (the same behaviour as --lowvram mode), so the
+    # second pass works regardless of where the weights physically reside.
+    try:
+        diffusion_model = model.model.diffusion_model
+        for m in diffusion_model.modules():
+            if hasattr(m, "comfy_cast_weights"):
+                m.comfy_cast_weights = True
+    except Exception:
+        pass  # Non-fatal: if we can't walk the model, sampling will still attempt
 
     noise_mask = None
     if "noise_mask" in latent:
@@ -4193,6 +4221,11 @@ def _pipeline_artistic(
 
         ksampler_thread.join()
         samples = result_container[0]
+        if samples is None:
+            raise RuntimeError(
+                "First-pass ksampler thread failed to produce samples. "
+                "Check the logs above for the underlying error (likely a device mismatch)."
+            )
     else:
         samples = ksampler.sample(
             seed=seed,
@@ -4266,32 +4299,28 @@ def _pipeline_artistic(
     # Final sampling pass
     log_progress("Second pass (refinement)...", gr_progress, 0.6)
 
-    # MPS device workaround: Recreate enhanced model for second pass to avoid device placement issues
-    # After the first threaded sampling pass, some model weights can end up on CPU instead of MPS
-    # This happens due to threading interaction with MPS backend + SAG making additional model calls
-    if torch.backends.mps.is_available():
-        # Recreate FreeU enhanced model from base model
-        freeu_model_second = freeu.patch(
-            model=base_model,
-            b1=freeu_b1,
-            b2=freeu_b2,
-            s1=freeu_s1,
-            s2=freeu_s2,
-        )[0]
+    # Device workaround: Always recreate enhanced model for second pass to avoid device placement issues.
+    # After the first threaded sampling pass, some model weights can end up on CPU instead of the
+    # target device (MPS or CUDA). This happens due to threading interaction with the backend +
+    # SAG making additional model calls. Recreating the patches is cheap and ensures consistency.
+    freeu_model_second = freeu.patch(
+        model=base_model,
+        b1=freeu_b1,
+        b2=freeu_b2,
+        s1=freeu_s1,
+        s2=freeu_s2,
+    )[0]
 
-        # Reapply SAG if enabled
-        if enable_sag:
-            smoothed_energy_second = NODE_CLASS_MAPPINGS["SelfAttentionGuidance"]()
-            enhanced_model_second = smoothed_energy_second.patch(
-                model=freeu_model_second,
-                scale=sag_scale,
-                blur_sigma=sag_blur_sigma,
-            )[0]
-        else:
-            enhanced_model_second = freeu_model_second
+    # Reapply SAG if enabled
+    if enable_sag:
+        smoothed_energy_second = NODE_CLASS_MAPPINGS["SelfAttentionGuidance"]()
+        enhanced_model_second = smoothed_energy_second.patch(
+            model=freeu_model_second,
+            scale=sag_scale,
+            blur_sigma=sag_blur_sigma,
+        )[0]
     else:
-        # On non-MPS devices, reuse the same enhanced model
-        enhanced_model_second = enhanced_model
+        enhanced_model_second = freeu_model_second
 
     # Use animation-enabled sampler if requested
     if animation_handler and enable_animation:
@@ -4327,6 +4356,11 @@ def _pipeline_artistic(
 
         ksampler_thread.join()
         final_samples = result_container[0]
+        if final_samples is None:
+            raise RuntimeError(
+                "Second-pass ksampler thread failed to produce samples. "
+                "Check the logs above for the underlying error (likely a device mismatch)."
+            )
     else:
         final_samples = ksampler.sample(
             seed=seed + 1,
@@ -4686,35 +4720,287 @@ STANDARD_EXAMPLES = [
 
 # Start your Gradio app with automatic cache cleanup (at module level for hot reload)
 # delete_cache=(3600, 3600) means: check every hour and delete files older than 1 hour
-with gr.Blocks(delete_cache=(3600, 3600)) as demo:
-    # Add a title and description
-    gr.Markdown("# QR Code Art Generator")
-    gr.Markdown("""
-        AI-powered QR code generator with two pipelines: **Artistic** (creative, photorealistic) and **Standard** (fast, reliable).
+_THEME = gr.themes.Base(
+    primary_hue=gr.themes.colors.violet,
+    secondary_hue=gr.themes.colors.indigo,
+    neutral_hue=gr.themes.colors.slate,
+    font=[gr.themes.GoogleFont("Inter"), "ui-sans-serif", "system-ui", "sans-serif"],
+).set(
+    # ── Page background ───────────────────────────────────────────────────
+    body_background_fill="#0f0f13",
+    body_background_fill_dark="#0f0f13",
+    body_text_color="#e2e8f0",
+    body_text_color_dark="#e2e8f0",
+    body_text_color_subdued="#94a3b8",
+    body_text_color_subdued_dark="#94a3b8",
+    # ── Blocks / panels ───────────────────────────────────────────────────
+    background_fill_primary="#1a1a2e",
+    background_fill_primary_dark="#1a1a2e",
+    background_fill_secondary="#16213e",
+    background_fill_secondary_dark="#16213e",
+    block_background_fill="#1e1e2e",
+    block_background_fill_dark="#1e1e2e",
+    block_border_color="rgba(255,255,255,0.08)",
+    block_border_color_dark="rgba(255,255,255,0.08)",
+    block_border_width="1px",
+    block_label_background_fill="#1e1e2e",
+    block_label_background_fill_dark="#1e1e2e",
+    block_label_text_color="#94a3b8",
+    block_label_text_color_dark="#94a3b8",
+    block_title_text_color="#cbd5e1",
+    block_title_text_color_dark="#cbd5e1",
+    block_shadow="0 4px 24px rgba(0,0,0,0.4)",
+    block_radius="10px",
+    # ── Inputs ────────────────────────────────────────────────────────────
+    input_background_fill="#0f0f13",
+    input_background_fill_dark="#0f0f13",
+    input_background_fill_focus="#0f0f13",
+    input_background_fill_focus_dark="#0f0f13",
+    input_border_color="rgba(255,255,255,0.12)",
+    input_border_color_dark="rgba(255,255,255,0.12)",
+    input_border_color_focus="rgba(167,139,250,0.6)",
+    input_border_color_focus_dark="rgba(167,139,250,0.6)",
+    input_shadow_focus="0 0 0 3px rgba(167,139,250,0.15)",
+    input_shadow_focus_dark="0 0 0 3px rgba(167,139,250,0.15)",
+    input_placeholder_color="#475569",
+    input_placeholder_color_dark="#475569",
+    input_radius="8px",
+    # ── Primary button ────────────────────────────────────────────────────
+    button_primary_background_fill="linear-gradient(135deg, #7c3aed, #6366f1)",
+    button_primary_background_fill_dark="linear-gradient(135deg, #7c3aed, #6366f1)",
+    button_primary_background_fill_hover="linear-gradient(135deg, #6d28d9, #4f46e5)",
+    button_primary_background_fill_hover_dark="linear-gradient(135deg, #6d28d9, #4f46e5)",
+    button_primary_text_color="#ffffff",
+    button_primary_text_color_dark="#ffffff",
+    button_primary_border_color="transparent",
+    button_primary_border_color_dark="transparent",
+    button_primary_shadow="0 4px 15px rgba(99,102,241,0.4)",
+    button_primary_shadow_hover="0 6px 20px rgba(99,102,241,0.55)",
+    button_transform_hover="translateY(-1px)",
+    button_transition="all 0.15s ease",
+    button_large_radius="8px",
+    button_medium_radius="8px",
+    button_large_text_weight="700",
+    button_medium_text_weight="600",
+    # ── Secondary button ──────────────────────────────────────────────────
+    button_secondary_background_fill="rgba(255,255,255,0.06)",
+    button_secondary_background_fill_dark="rgba(255,255,255,0.06)",
+    button_secondary_background_fill_hover="rgba(255,255,255,0.1)",
+    button_secondary_background_fill_hover_dark="rgba(255,255,255,0.1)",
+    button_secondary_text_color="#94a3b8",
+    button_secondary_text_color_dark="#94a3b8",
+    button_secondary_border_color="rgba(255,255,255,0.12)",
+    button_secondary_border_color_dark="rgba(255,255,255,0.12)",
+    # ── Checkbox ──────────────────────────────────────────────────────────
+    checkbox_background_color="#0f0f13",
+    checkbox_background_color_dark="#0f0f13",
+    checkbox_background_color_selected="#7c3aed",
+    checkbox_background_color_selected_dark="#7c3aed",
+    checkbox_border_color="rgba(255,255,255,0.2)",
+    checkbox_border_color_dark="rgba(255,255,255,0.2)",
+    checkbox_border_color_selected="#7c3aed",
+    checkbox_border_color_selected_dark="#7c3aed",
+    checkbox_label_background_fill="#1e1e2e",
+    checkbox_label_background_fill_dark="#1e1e2e",
+    checkbox_label_text_color="#94a3b8",
+    checkbox_label_text_color_dark="#94a3b8",
+    # ── Borders / radius ──────────────────────────────────────────────────
+    border_color_primary="rgba(255,255,255,0.1)",
+    border_color_primary_dark="rgba(255,255,255,0.1)",
+    border_color_accent="rgba(167,139,250,0.4)",
+    border_color_accent_dark="rgba(167,139,250,0.4)",
+    container_radius="12px",
+    # ── Accordion ─────────────────────────────────────────────────────────
+    accordion_text_color="#94a3b8",
+    accordion_text_color_dark="#94a3b8",
+    # ── Panel ─────────────────────────────────────────────────────────────
+    panel_background_fill="#1a1a2e",
+    panel_background_fill_dark="#1a1a2e",
+    panel_border_color="rgba(255,255,255,0.08)",
+    panel_border_color_dark="rgba(255,255,255,0.08)",
+    # ── Links ─────────────────────────────────────────────────────────────
+    link_text_color="#a78bfa",
+    link_text_color_dark="#a78bfa",
+    link_text_color_hover="#c4b5fd",
+    link_text_color_hover_dark="#c4b5fd",
+    # ── Shadows ───────────────────────────────────────────────────────────
+    shadow_drop="0 2px 8px rgba(0,0,0,0.4)",
+    shadow_drop_lg="0 8px 32px rgba(0,0,0,0.5)",
+)
 
-        **Privacy:** Generated images auto-delete after 1 hour. Download promptly!
+# CSS only for our custom HTML elements — no Gradio component selectors needed
+_CSS = """
+/* ── Hero card ───────────────────────────────────────────────────────────── */
+.qr-hero {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 45%, #0f3460 100%);
+    border-radius: 16px;
+    padding: 40px 48px 36px;
+    margin-bottom: 12px;
+    border: 1px solid rgba(99,102,241,0.3);
+    box-shadow: 0 8px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
+    position: relative;
+    overflow: hidden;
+}
+.qr-hero::before {
+    content: '';
+    position: absolute;
+    top: -80px; right: -80px;
+    width: 320px; height: 320px;
+    background: radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 65%);
+    pointer-events: none;
+}
+.qr-hero::after {
+    content: '';
+    position: absolute;
+    bottom: -100px; left: -60px;
+    width: 360px; height: 360px;
+    background: radial-gradient(circle, rgba(236,72,153,0.13) 0%, transparent 65%);
+    pointer-events: none;
+}
+.qr-hero h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    background: linear-gradient(90deg, #a78bfa 0%, #60a5fa 50%, #f472b6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0 0 10px;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
+}
+.qr-hero .subtitle {
+    color: #94a3b8;
+    font-size: 1.05rem;
+    margin: 0 0 26px;
+    line-height: 1.65;
+}
+.qr-hero .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 28px;
+}
+.qr-hero .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 999px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    font-family: 'Inter', system-ui, sans-serif;
+}
+.badge-artistic { background: rgba(167,139,250,0.15); color: #a78bfa; border: 1px solid rgba(167,139,250,0.35); }
+.badge-standard { background: rgba(96,165,250,0.15);  color: #60a5fa; border: 1px solid rgba(96,165,250,0.35); }
+.badge-privacy  { background: rgba(52,211,153,0.12);  color: #34d399; border: 1px solid rgba(52,211,153,0.3); }
+.badge-gpu      { background: rgba(251,191,36,0.12);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+.qr-hero .info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px;
+}
+.qr-hero .info-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 10px;
+    padding: 14px 16px;
+}
+.qr-hero .info-card .card-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: #475569;
+    margin-bottom: 5px;
+    font-family: 'Inter', system-ui, sans-serif;
+}
+.qr-hero .info-card .card-value {
+    font-size: 0.88rem;
+    color: #cbd5e1;
+    line-height: 1.5;
+    font-family: 'Inter', system-ui, sans-serif;
+}
 
-        **GPU Quota:**
-        - **Unauthenticated**: 120s daily (~1 generation at 1024px or ~6 at 512px)
-        - **Authenticated**: 210s daily (~10 artistic generations at 512px)
-        - **Tip**: Use Standard pipeline (2x faster) to save quota
+/* ── Notice bar ──────────────────────────────────────────────────────────── */
+.qr-notice {
+    background: rgba(99,102,241,0.07);
+    border: 1px solid rgba(99,102,241,0.22);
+    border-radius: 10px;
+    padding: 13px 18px;
+    color: #94a3b8;
+    font-size: 0.88rem;
+    line-height: 1.65;
+    margin-bottom: 6px;
+    font-family: 'Inter', system-ui, sans-serif;
+}
+.qr-notice strong { color: #a78bfa; }
+.qr-notice code {
+    background: rgba(255,255,255,0.09);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.85em;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
 
-        **Zero GPU Error?** If you see "Zero GPU" error, you've run out of quota. Options:
-        - Wait until tomorrow for quota reset
-        - Register a Hugging Face account for more generations
-        - Subscribe to PRO for even more generations
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0f0f13; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+"""
 
-        **Tip:** URL shortener is the best way to keep QR codes scannable without burning extra GPU quota on larger image sizes. If your link is longer than ~10 characters, consider enabling the URL shortener. If you keep the original URL and it grows beyond ~38 characters, use an image size above 704 for better results.
+_HEADER_HTML = """
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+<div class="qr-hero">
+  <h1>✦ QR Code Art Generator</h1>
+  <p class="subtitle">
+    Transform any link or text into a stunning, AI-generated QR code —<br>
+    scannable by any phone, beautiful enough to share.
+  </p>
+  <div class="badge-row">
+    <span class="badge badge-artistic">🎨 Artistic Pipeline</span>
+    <span class="badge badge-standard">⚡ Standard Pipeline</span>
+    <span class="badge badge-privacy">🔒 Auto-delete in 1 h</span>
+    <span class="badge badge-gpu">🖥️ GPU Accelerated</span>
+  </div>
+  <div class="info-grid">
+    <div class="info-card">
+      <div class="card-label">Unauthenticated quota</div>
+      <div class="card-value">120 s / day · ~1 gen @ 1024 px</div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">Authenticated quota</div>
+      <div class="card-value">210 s / day · ~10 gens @ 512 px</div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">Pro tip — long URLs</div>
+      <div class="card-value">Enable the URL shortener for links &gt; 10 chars to keep QR codes clean</div>
+    </div>
+    <div class="info-card">
+      <div class="card-label">Out of quota?</div>
+      <div class="card-value">Wait for daily reset, sign in, or switch to Standard (2× faster)</div>
+    </div>
+  </div>
+</div>
+"""
 
-        Choose a tab below to get started!
-        """)
+with gr.Blocks(theme=_THEME, css=_CSS, delete_cache=(3600, 3600)) as demo:
+    # ── Hero header ──────────────────────────────────────────────────────────
+    gr.HTML(_HEADER_HTML)
 
-    gr.Markdown(
-        "Note: You can opt in to help improve the product by sharing anonymous usage data. Generated images are not used for analytics and are automatically deleted after 1 hour."
-    )
-    gr.Markdown(
-        "Note: You can also opt in to a temporary `qrcut.co` URL shortener when using URL mode. This is usually the best way to get cleaner QR codes for longer links. Short links expire if nobody opens the QR code for 7 days."
-    )
+    # ── Notices & opt-in ─────────────────────────────────────────────────────
+    gr.HTML("""
+    <div class="qr-notice">
+      <strong>Privacy:</strong> Generated images are never stored for analytics and are automatically
+      deleted after 1 hour — download promptly.
+      &nbsp;·&nbsp;
+      <strong>URL shortener:</strong> Opt in below to use a temporary <code>qrcut.co</code> short link
+      when in URL mode. Short links expire after 7 days of inactivity.
+    </div>
+    """)
+
     analytics_opt_in_global = gr.Checkbox(
         label="Share anonymous usage data to improve QR quality",
         value=ANALYTICS_DEFAULT_OPT_IN,
@@ -4723,7 +5009,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
     # Add tabs for different generation methods
     with gr.Tabs():
         # ARTISTIC QR TAB
-        with gr.TabItem("Artistic QR"):
+        with gr.TabItem("🎨  Artistic QR"):
             # Short description
             gr.Markdown("""
                 🎨 **Create artistic QR codes that blend seamlessly with your creative vision**
@@ -5756,7 +6042,7 @@ with gr.Blocks(delete_cache=(3600, 3600)) as demo:
             )
 
         # STANDARD QR TAB
-        with gr.TabItem("Standard QR"):
+        with gr.TabItem("⚡  Standard QR"):
             # Short description
             gr.Markdown("""
                 ⚡ **2x faster than Artistic pipeline** - perfect for quota management

@@ -45,3 +45,8 @@ models/
 output/
 temp/
 *.log
+
+# Secrets — never commit tokens or credentials
+.env
+*.env
+secrets.bat

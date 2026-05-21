@@ -26,6 +26,49 @@ This GitHub mirror is maintained by **Aziz Khan** ([@aziz3d](https://github.com/
 
 ---
 
+## Recent Changes
+
+### Bug Fixes
+
+**URL normalization crash on non-HTTP payloads**
+When `Input Type` was set to `URL` but the content was a non-HTTP string (e.g. a WiFi QR payload like `WIFI:T:WPA;S:MyNetwork;P:MyPassword123;;`), `urllib.parse.urlsplit` would misparse the string and `parsed.port` would raise a `ValueError`. The normalizer now wraps `parsed.port` in a `try/except ValueError` and returns the input unchanged if parsing fails — matching the intended behaviour of leaving non-URL payloads untouched.
+
+**Second-pass ksampler device mismatch (CUDA / CPU)**
+The artistic pipeline runs two sampling passes. After the first threaded pass and a `soft_empty_cache()` call, ComfyUI's memory manager can partially offload UNet layers back to CPU to make room for the VAE. When the second pass starts, early layers like `time_embed` remain on CPU while input tensors are on CUDA, causing:
+```
+RuntimeError: Expected all tensors to be on the same device, but found at least two devices, cpu and cuda:0!
+```
+The fix sets `comfy_cast_weights = True` on every layer of the diffusion model before the second-pass thread runs. This activates the `forward_comfy_cast_weights` path which casts each layer's weights to the input device at forward-time — the same mechanism used by `--lowvram` mode — so the pass works regardless of where weights physically reside. The latent and noise tensors are also explicitly moved to the target device before sampling.
+
+### UI Improvements
+
+**Dark theme and styled header**
+The web UI has been redesigned with a dark theme using Gradio 5's typed theme API (`gr.themes.Base().set(...)`). Key changes:
+
+- Deep dark background (`#0f0f13`) across the full page
+- Block and input fills use layered dark blues (`#1e1e2e`, `#1a1a2e`)
+- Primary buttons use a purple-to-indigo gradient with a lift-on-hover effect
+- Input focus states show a purple glow ring
+- Inter font loaded via Google Fonts
+
+The flat markdown header is replaced with a styled HTML hero card featuring:
+- Gradient title text (purple → blue → pink)
+- Four pill badges: Artistic Pipeline, Standard Pipeline, Auto-delete, GPU Accelerated
+- A 4-card info grid showing quota limits and tips
+- Radial glow blobs as decorative background elements
+
+The two separate notice paragraphs are consolidated into a single styled notice bar.
+
+### Configuration
+
+**HF_TOKEN support in launch.bat**
+`launch.bat` now sets `HF_TOKEN` before launching the app. This suppresses the unauthenticated rate-limit warning from `huggingface_hub` and enables faster model downloads. The token is set as a local environment variable and is never committed to git.
+
+**`.gitignore` updated**
+`.env`, `*.env`, and `secrets.bat` are now excluded from git to prevent accidental credential commits.
+
+---
+
 ## Running Locally
 
 You can run this app entirely on your own machine, no API keys or cloud GPU required. Models are downloaded automatically from Hugging Face Hub on first launch and cached locally.
@@ -67,7 +110,11 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install -r requirements.txt
 ```
 
-**Step 3 — Launch the app:**
+**Step 3 — (Optional) Set your Hugging Face token:**
+
+Open `launch.bat` and replace `YOUR_NEW_TOKEN_HERE` with a Read token from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). This suppresses the rate-limit warning and speeds up model downloads. The token is never committed to git.
+
+**Step 4 — Launch the app:**
 
 Double-click `launch.bat` or run:
 
@@ -85,11 +132,13 @@ launch.bat                  # default — http://127.0.0.1:7860
 launch.bat --share          # generate a public Gradio URL
 launch.bat --port 8080      # use a custom port
 launch.bat --cpu            # force CPU mode (no GPU needed, slow)
+launch.bat --highvram       # keep all models in VRAM (needs ≥12 GB free)
+launch.bat --normalvram     # use ComfyUI default VRAM mode
 ```
 
 ### How local mode works
 
-The app was originally built for Hugging Face ZeroGPU (the `@spaces.GPU` decorator). The included `run_local.py` script patches this decorator into a transparent no-op so the app runs without any HF infrastructure. Analytics are also disabled by default locally — no Supabase or PostHog credentials are needed.
+The app was originally built for Hugging Face ZeroGPU (the `@spaces.GPU` decorator). The included `run_local.py` script patches this decorator into a transparent no-op so the app runs without any HF infrastructure. By default `run_local.py` injects `--lowvram` into ComfyUI's argument parser, which keeps all model layer weights on CPU and casts them to the GPU on-the-fly. This prevents device-mismatch crashes on GPUs with limited VRAM. Pass `--highvram` or `--normalvram` to override if you have plenty of VRAM. Analytics are also disabled by default locally — no Supabase or PostHog credentials are needed.
 
 ---
 
@@ -107,7 +156,7 @@ When `Input Type` is set to `URL`, the app normalizes links on CPU before any GP
 
 - Common tracking params such as `utm_*`, `fbclid`, and `gclid` are removed automatically.
 - Scheme and host casing are normalized to reduce unnecessary QR payload length.
-- Plain text payloads are left untouched.
+- Non-HTTP payloads (WiFi, vCard, plain text, etc.) are detected and left untouched.
 
 ## Temporary short links
 

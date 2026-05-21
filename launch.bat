@@ -16,6 +16,10 @@ echo.
 :: Activate the virtual environment
 call "%~dp0venv\Scripts\activate.bat"
 
+:: Hugging Face token — suppresses rate-limit warnings and speeds up model downloads
+:: Revoke and replace this if the token is ever exposed
+set HF_TOKEN=YOUR_NEW_TOKEN_HERE
+
 :: Run the local launcher (models will auto-download on first run)
 python "%~dp0run_local.py" %*
 
