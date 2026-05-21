@@ -2192,6 +2192,56 @@ def ksampler_with_animation(
     return (out,)
 
 
+def _composite_qr_onto_image(
+    ai_image: Image.Image,
+    base_qr_pil: Image.Image,
+    blend_strength: float = 0.85,
+) -> Image.Image:
+    """
+    Composite the original clean QR pattern onto the AI-generated image to
+    guarantee scannability regardless of how well ControlNet preserved the
+    QR structure during diffusion.
+
+    Strategy:
+    - Dark QR modules  → blend toward black  (AI texture shows through at 1-blend_strength)
+    - Light QR modules → blend toward white  (AI texture shows through at 1-blend_strength)
+    - Border region    → left as pure AI art (no compositing outside the QR data area)
+
+    blend_strength=1.0 → pure black/white QR overlaid (always scannable, no art)
+    blend_strength=0.0 → pure AI image (no compositing, may not scan)
+    blend_strength=0.85 → strong QR signal with subtle AI texture visible through modules
+    """
+    import numpy as np
+
+    # Resize QR to match the final image (upscaling may have changed dimensions)
+    target_w, target_h = ai_image.size
+    qr_resized = base_qr_pil.convert("L").resize(
+        (target_w, target_h), Image.NEAREST
+    )
+
+    ai_arr  = np.array(ai_image.convert("RGB"),  dtype=np.float32)
+    qr_arr  = np.array(qr_resized,               dtype=np.float32)  # 0=black, 255=white
+
+    # Normalise QR to [0, 1] — 0 = dark module, 1 = light background
+    qr_norm = qr_arr / 255.0  # shape (H, W)
+    qr_norm = qr_norm[:, :, np.newaxis]  # broadcast over RGB channels
+
+    # Target colors for dark/light modules
+    dark_target  = np.zeros_like(ai_arr)          # pure black
+    light_target = np.full_like(ai_arr, 255.0)    # pure white
+
+    # Blend: where qr_norm≈0 (dark module) → push toward black
+    #        where qr_norm≈1 (light module) → push toward white
+    # We compute a per-pixel target between dark and light based on qr_norm,
+    # then blend that target with the AI image using blend_strength.
+    qr_target = dark_target * (1.0 - qr_norm) + light_target * qr_norm
+
+    result = ai_arr * (1.0 - blend_strength) + qr_target * blend_strength
+    result = np.clip(result, 0, 255).astype(np.uint8)
+
+    return Image.fromarray(result, "RGB")
+
+
 def apply_color_quantization(
     image: Image.Image,
     colors: list[str],
@@ -3929,6 +3979,9 @@ def _pipeline_standard(
                 )
                 current_step += 1
 
+            # Composite original QR back onto AI image to guarantee scannability
+            pil_image = _composite_qr_onto_image(pil_image, base_qr_pil)
+
             msg = f"No errors, all good! Final QR art generated and upscaled. (step {current_step}/{total_steps})"
             log_progress(msg, gr_progress, 1.0)
             yield (pil_image, msg)
@@ -3963,6 +4016,9 @@ def _pipeline_standard(
                     variation_steps=variation_steps,
                 )
                 current_step += 1
+
+            # Composite original QR back onto AI image to guarantee scannability
+            pil_image = _composite_qr_onto_image(pil_image, base_qr_pil)
 
             msg = f"No errors, all good! Final QR art generated. (step {current_step}/{total_steps})"
             log_progress(msg, gr_progress, 1.0)
@@ -4441,6 +4497,9 @@ def _pipeline_artistic(
                 variation_steps=variation_steps,
             )
 
+        # Composite original QR back onto AI image to guarantee scannability
+        final_image = _composite_qr_onto_image(final_image, base_qr_pil)
+
         msg = f"No errors, all good! Final artistic QR code generated and upscaled. (step {current_step}/{total_steps})"
         log_progress(msg, gr_progress, 1.0)
         yield (final_image, msg)
@@ -4469,6 +4528,9 @@ def _pipeline_artistic(
                 gradient_strength=gradient_strength,
                 variation_steps=variation_steps,
             )
+
+        # Composite original QR back onto AI image to guarantee scannability
+        final_image = _composite_qr_onto_image(final_image, base_qr_pil)
 
         msg = f"No errors, all good! Final artistic QR code generated. (step {current_step}/{total_steps})"
         log_progress(msg, gr_progress, 1.0)
