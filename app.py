@@ -4857,47 +4857,55 @@ _THEME = gr.themes.Base(
 _CSS = """
 /* ── Hero card ───────────────────────────────────────────────────────────── */
 .qr-hero {
-    background: linear-gradient(135deg, #0f2027 0%, #136f7a 45%, #1cc5c9 100%);
+    background: #13131a;
     border-radius: 16px;
     padding: 40px 48px 36px;
     margin-bottom: 12px;
-    border: 1px solid rgba(99,102,241,0.3);
-    box-shadow: 0 8px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
+    border: 1px solid rgba(139,92,246,0.25);
+    box-shadow: 0 4px 32px rgba(0,0,0,0.5);
     position: relative;
     overflow: hidden;
 }
+/* Subtle purple glow top-right */
 .qr-hero::before {
     content: '';
     position: absolute;
-    top: -80px; right: -80px;
-    width: 320px; height: 320px;
-    background: radial-gradient(circle, rgba(99,102,241,0.2) 0%, transparent 65%);
+    top: -60px; right: -60px;
+    width: 280px; height: 280px;
+    background: radial-gradient(circle, rgba(139,92,246,0.15) 0%, transparent 70%);
     pointer-events: none;
 }
+/* Subtle blue glow bottom-left */
 .qr-hero::after {
     content: '';
     position: absolute;
-    bottom: -100px; left: -60px;
-    width: 360px; height: 360px;
-    background: radial-gradient(circle, rgba(236,72,153,0.13) 0%, transparent 65%);
+    bottom: -80px; left: -40px;
+    width: 300px; height: 300px;
+    background: radial-gradient(circle, rgba(59,130,246,0.1) 0%, transparent 70%);
     pointer-events: none;
 }
 .qr-hero h1 {
-    font-size: 2.5rem;
+    font-size: 2.4rem;
     font-weight: 800;
-    background: linear-gradient(90deg, #a78bfa 0%, #60a5fa 50%, #f472b6 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #f1f5f9;
     margin: 0 0 10px;
     line-height: 1.15;
     letter-spacing: -0.5px;
+    font-family: 'Inter', system-ui, sans-serif;
+}
+/* Accent the word "Art" with a gradient span */
+.qr-hero h1 .accent {
+    background: linear-gradient(90deg, #a78bfa, #60a5fa);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 .qr-hero .subtitle {
     color: #94a3b8;
-    font-size: 1.05rem;
+    font-size: 1.0rem;
     margin: 0 0 26px;
-    line-height: 1.65;
+    line-height: 1.7;
+    font-family: 'Inter', system-ui, sans-serif;
 }
 .qr-hero .badge-row {
     display: flex;
@@ -4916,10 +4924,10 @@ _CSS = """
     letter-spacing: 0.02em;
     font-family: 'Inter', system-ui, sans-serif;
 }
-.badge-artistic { background: rgba(167,139,250,0.15); color: #a78bfa; border: 1px solid rgba(167,139,250,0.35); }
-.badge-standard { background: rgba(96,165,250,0.15);  color: #60a5fa; border: 1px solid rgba(96,165,250,0.35); }
-.badge-privacy  { background: rgba(52,211,153,0.12);  color: #34d399; border: 1px solid rgba(52,211,153,0.3); }
-.badge-gpu      { background: rgba(251,191,36,0.12);  color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+.badge-artistic { background: rgba(167,139,250,0.12); color: #c4b5fd; border: 1px solid rgba(167,139,250,0.3); }
+.badge-standard { background: rgba(96,165,250,0.12);  color: #93c5fd; border: 1px solid rgba(96,165,250,0.3); }
+.badge-privacy  { background: rgba(52,211,153,0.1);   color: #6ee7b7; border: 1px solid rgba(52,211,153,0.25); }
+.badge-gpu      { background: rgba(251,191,36,0.1);   color: #fcd34d; border: 1px solid rgba(251,191,36,0.25); }
 .qr-hero .info-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -4927,7 +4935,7 @@ _CSS = """
 }
 .qr-hero .info-card {
     background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.09);
+    border: 1px solid rgba(255,255,255,0.08);
     border-radius: 10px;
     padding: 14px 16px;
 }
@@ -4936,14 +4944,14 @@ _CSS = """
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.09em;
-    color: #475569;
+    color: #7c8fa6;
     margin-bottom: 5px;
     font-family: 'Inter', system-ui, sans-serif;
 }
 .qr-hero .info-card .card-value {
     font-size: 0.88rem;
     color: #cbd5e1;
-    line-height: 1.5;
+    line-height: 1.55;
     font-family: 'Inter', system-ui, sans-serif;
 }
 
@@ -4979,9 +4987,9 @@ _HEADER_HTML = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
 <div class="qr-hero">
-  <h1>QR Code Art Generator</h1>
+  <h1>QR Code <span class="accent">Art</span> Generator</h1>
   <p class="subtitle">
-    Transform any link or text into a stunning, AI-generated QR code —<br>
+    Transform any link or text into a stunning, AI-generated QR code —
     scannable by any phone, beautiful enough to share.
   </p>
   <div class="badge-row">
@@ -4996,7 +5004,7 @@ _HEADER_HTML = """
       <div class="card-value">120 s / day · ~1 gen @ 1024 px</div>
     </div>
     <div class="info-card">
-      <div class="card-label">Authenticated quota Online</div>
+      <div class="card-label">Authenticated quota</div>
       <div class="card-value">210 s / day · ~10 gens @ 512 px</div>
     </div>
     <div class="info-card">
@@ -5005,7 +5013,7 @@ _HEADER_HTML = """
     </div>
     <div class="info-card">
       <div class="card-label">Out of quota?</div>
-      <div class="card-value">Wait for daily reset, sign in, or switch to Standard if using online version(2× faster)</div>
+      <div class="card-value">Wait for daily reset, sign in, or switch to Standard (2× faster)</div>
     </div>
   </div>
 </div>

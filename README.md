@@ -40,6 +40,18 @@ RuntimeError: Expected all tensors to be on the same device, but found at least 
 ```
 The fix sets `comfy_cast_weights = True` on every layer of the diffusion model before the second-pass thread runs. This activates the `forward_comfy_cast_weights` path which casts each layer's weights to the input device at forward-time — the same mechanism used by `--lowvram` mode — so the pass works regardless of where weights physically reside. The latent and noise tensors are also explicitly moved to the target device before sampling.
 
+**Generated QR codes not scannable**
+The pipeline relied entirely on ControlNet to preserve the QR pattern during diffusion. When ControlNet strength was insufficient, or the second pass (which uses the first-pass AI output as its ControlNet image rather than the original QR) drifted too far, the QR pattern degraded to the point where phone scanners could not read it.
+
+The fix adds `_composite_qr_onto_image()` which blends the original clean QR back onto the final AI image at `blend_strength=0.85` as the very last step in both pipelines:
+- Dark QR modules are pushed 85% toward black (AI texture still visible at 15% opacity)
+- Light QR modules are pushed 85% toward white (AI texture still visible at 15% opacity)
+
+This guarantees scannability regardless of how well the AI preserved the QR structure, while keeping the artistic look visible through the modules. Applied after all post-processing (upscaling, color quantization) in both the Standard and Artistic pipelines.
+
+**Gradio theme startup crash**
+`shadow_drop_dark` is not a valid property in Gradio 5's theme API. Replaced with `block_shadow_dark` which is the correct equivalent.
+
 ### UI Improvements
 
 **Dark theme and styled header**
@@ -52,17 +64,21 @@ The web UI has been redesigned with a dark theme using Gradio 5's typed theme AP
 - Inter font loaded via Google Fonts
 
 The flat markdown header is replaced with a styled HTML hero card featuring:
-- Gradient title text (purple → blue → pink)
+- Plain white title with a purple-blue gradient accent on the word "Art"
+- Subtitle and all body text in high-contrast slate tones (`#f1f5f9`, `#94a3b8`, `#cbd5e1`)
 - Four pill badges: Artistic Pipeline, Standard Pipeline, Auto-delete, GPU Accelerated
 - A 4-card info grid showing quota limits and tips
-- Radial glow blobs as decorative background elements
+- Subtle radial glow blobs (purple top-right, blue bottom-left) on a solid dark background (`#13131a`)
 
 The two separate notice paragraphs are consolidated into a single styled notice bar.
+
+**Dark/light/system mode toggle fixed**
+Theme properties were previously set on both the plain and `_dark` variants, locking every mode to dark colors. Now only `_dark`-suffixed properties carry the dark palette; plain (light) properties fall back to Gradio's built-in light defaults. Switching to Light or System mode in the settings panel now works correctly.
 
 ### Configuration
 
 **HF_TOKEN support in launch.bat**
-`launch.bat` now sets `HF_TOKEN` before launching the app. This suppresses the unauthenticated rate-limit warning from `huggingface_hub` and enables faster model downloads. The token is set as a local environment variable and is never committed to git.
+`launch.bat` now includes a placeholder `HF_TOKEN` line. Fill in a Read token from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) to suppress the unauthenticated rate-limit warning from `huggingface_hub` and get faster model downloads. The token is set as a local environment variable and is never committed to git.
 
 **`.gitignore` updated**
 `.env`, `*.env`, and `secrets.bat` are now excluded from git to prevent accidental credential commits.
