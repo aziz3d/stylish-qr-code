@@ -4766,7 +4766,7 @@ _THEME = gr.themes.Base(
     panel_border_color_dark="rgba(255,255,255,0.08)",
     link_text_color_dark="#a78bfa",
     link_text_color_hover_dark="#c4b5fd",
-    shadow_drop_dark="0 2px 8px rgba(0,0,0,0.4)",
+    block_shadow_dark="0 4px 24px rgba(0,0,0,0.5)",
     # ── Applied in both modes (styling, not colors) ───────────────────────
     block_border_width="1px",
     block_radius="10px",
