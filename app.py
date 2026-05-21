@@ -4795,7 +4795,7 @@ _THEME = gr.themes.Base(
 _CSS = """
 /* ── Hero card ───────────────────────────────────────────────────────────── */
 .qr-hero {
-    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 45%, #0f3460 100%);
+    background: linear-gradient(135deg, #0f2027 0%, #136f7a 45%, #1cc5c9 100%);
     border-radius: 16px;
     padding: 40px 48px 36px;
     margin-bottom: 12px;
@@ -4917,7 +4917,7 @@ _HEADER_HTML = """
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
 <div class="qr-hero">
-  <h1>✦ QR Code Art Generator</h1>
+  <h1>QR Code Art Generator</h1>
   <p class="subtitle">
     Transform any link or text into a stunning, AI-generated QR code —<br>
     scannable by any phone, beautiful enough to share.
@@ -4934,7 +4934,7 @@ _HEADER_HTML = """
       <div class="card-value">120 s / day · ~1 gen @ 1024 px</div>
     </div>
     <div class="info-card">
-      <div class="card-label">Authenticated quota</div>
+      <div class="card-label">Authenticated quota Online</div>
       <div class="card-value">210 s / day · ~10 gens @ 512 px</div>
     </div>
     <div class="info-card">
@@ -4943,7 +4943,7 @@ _HEADER_HTML = """
     </div>
     <div class="info-card">
       <div class="card-label">Out of quota?</div>
-      <div class="card-value">Wait for daily reset, sign in, or switch to Standard (2× faster)</div>
+      <div class="card-value">Wait for daily reset, sign in, or switch to Standard if using online version(2× faster)</div>
     </div>
   </div>
 </div>
